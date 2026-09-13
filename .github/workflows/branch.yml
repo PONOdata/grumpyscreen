@@ -81,6 +81,21 @@ jobs:
       with:
         name: ${{ matrix.asset }}-debug
         path: ./${{ matrix.asset }}-debug.tar.gz
+        # Debug symbols expire fast; the stripped build above keeps the repo
+        # default. Measured 2026-09-12 across every repo in the org: 0.706 GB of
+        # live Actions artifacts against a 500 MB allowance, and these three
+        # -debug assets were 439.6 MB of it, 62% of the org total, versus 61.7 MB
+        # for the three shipped ones. Symbols are seven times the size of the
+        # thing they describe.
+        #
+        # They are also the shortest-lived thing here by USE. Debug symbols are
+        # read while diagnosing one specific build, usually within days of it
+        # breaking; eight branch builds' worth held for the default retention is
+        # storage nobody is going to open.
+        #
+        # This does not touch the release assets, which is deliberate: those are
+        # what someone flashes.
+        retention-days: 7
 
     # Branch release only fires on push events (branch merge to pono / direct
     # push to a topic branch). Pull-request triggers skip this step: PR CI is
