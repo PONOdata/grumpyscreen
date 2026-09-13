@@ -81,27 +81,33 @@ jobs:
       with:
         name: ${{ matrix.asset }}-debug
         path: ./${{ matrix.asset }}-debug.tar.gz
-        # THREE days, and the first attempt at this line said 7, which was a
-        # no-op: this repo's default retention is ALREADY 7 days. Measured off a
-        # run from before the change, where all six artifacts expired exactly 7
-        # days after creation without any retention-days set. Writing the
-        # default back as though it were a saving is the kind of change that
-        # looks like work and moves nothing.
+        # ONE day, and the two wrong answers before it are the reason to write
+        # the arithmetic down rather than the verdict.
         #
-        # What the earlier note got wrong along with it: these three -debug
-        # assets are 439.6 MB against 61.7 MB for the shipped ones, and that is
-        # 62% of the org's live artifact bytes, but it is ONE DAY of builds
-        # under a short retention rather than a pile accumulating. Symbols are
-        # seven times the size of the thing they describe, and the fix is a
-        # shorter window, not a window that already existed.
+        # First attempt said 7, which was a NO-OP: this repo's default retention
+        # is already 7 days, measured off a run from before the change where all
+        # six artifacts expired exactly 7 days after creation with nothing set.
+        # Writing a default back as though it were a saving looks like work and
+        # moves nothing.
         #
-        # Three days is chosen against USE rather than against the number.
-        # Symbols get read while diagnosing one specific build, usually within a
-        # day or two of it breaking. Past that nobody opens them.
+        # Second attempt said 3, reasoning that 439.6 MB was "one day of builds"
+        # so the window was the whole lever. The rate was never measured. It is
+        # about TEN builds a day: 30 live -debug artifacts at 549.5 MB, every
+        # one of them created on a single date.
         #
-        # The release assets are untouched, which is deliberate: those are what
-        # someone flashes, and they are small.
-        retention-days: 3
+        # Live bytes are builds-per-day times retention times size, so the rate
+        # decides what the window buys. At 7 days this repo tends toward roughly
+        # 1.3 GB of symbols on its own, at 3 days about 550 MB, at 1 day about
+        # 180 MB. The org's whole free allowance is 500 MB.
+        #
+        # One day is still chosen against USE and not only against the number:
+        # symbols are read while diagnosing the build that just broke, and a
+        # same-day window covers that. Anything older is re-buildable from the
+        # commit, which is the thing actually worth keeping.
+        #
+        # The release assets are untouched, deliberately. Those are what someone
+        # flashes, and they are a seventh of the size.
+        retention-days: 1
 
     # Branch release only fires on push events (branch merge to pono / direct
     # push to a topic branch). Pull-request triggers skip this step: PR CI is
