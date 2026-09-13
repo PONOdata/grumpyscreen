@@ -81,6 +81,33 @@ jobs:
       with:
         name: ${{ matrix.asset }}-debug
         path: ./${{ matrix.asset }}-debug.tar.gz
+        # ONE day, and the two wrong answers before it are the reason to write
+        # the arithmetic down rather than the verdict.
+        #
+        # First attempt said 7, which was a NO-OP: this repo's default retention
+        # is already 7 days, measured off a run from before the change where all
+        # six artifacts expired exactly 7 days after creation with nothing set.
+        # Writing a default back as though it were a saving looks like work and
+        # moves nothing.
+        #
+        # Second attempt said 3, reasoning that 439.6 MB was "one day of builds"
+        # so the window was the whole lever. The rate was never measured. It is
+        # about TEN builds a day: 30 live -debug artifacts at 549.5 MB, every
+        # one of them created on a single date.
+        #
+        # Live bytes are builds-per-day times retention times size, so the rate
+        # decides what the window buys. At 7 days this repo tends toward roughly
+        # 1.3 GB of symbols on its own, at 3 days about 550 MB, at 1 day about
+        # 180 MB. The org's whole free allowance is 500 MB.
+        #
+        # One day is still chosen against USE and not only against the number:
+        # symbols are read while diagnosing the build that just broke, and a
+        # same-day window covers that. Anything older is re-buildable from the
+        # commit, which is the thing actually worth keeping.
+        #
+        # The release assets are untouched, deliberately. Those are what someone
+        # flashes, and they are a seventh of the size.
+        retention-days: 1
 
     # Branch release only fires on push events (branch merge to pono / direct
     # push to a topic branch). Pull-request triggers skip this step: PR CI is
