@@ -77,9 +77,19 @@ jobs:
                   // is GitHub's own verdict that the required contexts are green, which is
                   // the same condition auto-merge would have waited for.
                   if (/clean status/i.test(last)) {
-                    await squash();
-                    core.info("required checks already green; merged directly");
-                    return "merged";
+                    // This merge is NOT allowed to throw. Unguarded, a refusal here
+                    // escapes the loop and the function, reaches the top-level call with
+                    // no handler, and github-script turns an unhandled rejection into a
+                    // failed step: the red check that poisons arming, which is what the
+                    // warning path further down exists to avoid. A refusal means not yet,
+                    // so log it and let the loop keep trying.
+                    try {
+                      await squash();
+                      core.info("required checks already green; merged directly");
+                      return "merged";
+                    } catch (mergeError) {
+                      core.info(`direct merge refused: ${mergeError.message}`);
+                    }
                   }
 
                   if (attempt < backoff.length) await wait(backoff[attempt]);
