@@ -49,13 +49,14 @@ for f in os.listdir(out):
 
 def post(path):
     req = urllib.request.Request(MOONRAKER + path, data=b"", method="POST")
-    # nosemgrep: the printer's own Moonraker on localhost, plain http by design
+    # The printer's own Moonraker on localhost, plain http by design.
+    # nosemgrep: dynamic-urllib-use-detected, insecure-urlopen
     return urllib.request.urlopen(req, timeout=5).read()[:120]
 
 
 def kstate():
     try:
-        # nosemgrep: the printer's own Moonraker on localhost, plain http by design
+        # nosemgrep: dynamic-urllib-use-detected, insecure-urlopen
         r = json.load(urllib.request.urlopen(MOONRAKER + "/printer/info", timeout=0.6))
         return r["result"]["state"]
     except Exception as e:  # noqa: BLE001 - the error text IS the reading
@@ -90,7 +91,7 @@ def tap(x, y, hold):
 if action == "start":
     subprocess.call(["/etc/init.d/grumpyscreen", "stop"])
     time.sleep(0.5)
-    # nosemgrep: fixed argv, BIN is the operator's own test binary
+    # Fixed argv, BIN is the operator's own test binary.
     subprocess.call(["start-stop-daemon", "-S", "-b", "-m", "-p", PID, "-x", BIN])
 elif action == "krestart":
     print("restart", post("/printer/restart"))
