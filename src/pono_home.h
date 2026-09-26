@@ -224,8 +224,11 @@ struct SettingsHandles {
 };
 void build_settings(lv_obj_t *parent, SettingsHandles *h = nullptr);
 
-// Update the value text on a value pill (the app reflects applied tunes).
+// Update the value text on a value pill. pill_set shows a value the machine
+// reported; pill_pending shows one that was only sent, dimmed, until the
+// readback confirms it.
 void pill_set(lv_obj_t *pill, const char *txt);
+void pill_pending(lv_obj_t *pill, const char *txt);
 
 // Bed mesh heatmap: a colored grid of the probed Z deviation. The app feeds
 // the live probed_matrix from Moonraker; the sim shows a demo surface.

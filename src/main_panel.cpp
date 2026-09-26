@@ -131,6 +131,7 @@ void MainPanel::init(json &j) {
     }
   }
   { auto bm = j[json::json_pointer("/result/status/bed_mesh")]; if (!bm.is_null()) render_bed_mesh(bm); }  // initial heatmap
+  read_tune(j, "/result/status");  // Expert Tune pills start from the machine, not the build defaults
 
   // Seed the Pono cockpit + Move screen from the initial full state. consume()
   // reads these same fields from /params/0 deltas; the subscribe reply nests them
@@ -254,6 +255,8 @@ void MainPanel::consume(json &j) {
       el.second->update_value(value);
     }
   }
+
+  read_tune(j, "/params/0");
 
   json pstat_state = j.value("/params/0/print_stats/state"_json_pointer, json());  // value(): read without INSERTing a null node on the hot path (non-const operator[] mutates the delta every time this key is absent, i.e. most deltas)
   if (!pstat_state.is_null()) {
@@ -1224,24 +1227,99 @@ void MainPanel::_sub_tap(lv_event_t *e) {
   if (t == li.hot_full)  { s->ws.gcode_script("SET_LED LED=hotend WHITE=1.0"); s->led_hot_level_ = 2; pono::seg_highlight(hb, 3, 2); return; }
   // Expert Tune (live): value pills open the keypad, presets apply directly,
   // z-offset uses live babystep. Every control writes straight to Klipper and
-  // updates its pill so the change is visible immediately.
+  // shows its request dimmed; the pill goes solid when the readback confirms it
+  // (read_tune), or returns to the machine's value if it never does.
+  //
+  // Z uses MOVE=1 once Z is homed, so the nozzle moves now. MOVE=0 only shifts
+  // the coordinate frame (pono-kalico gcode_move.py cmd_SET_GCODE_OFFSET), so
+  // mid-print the change waited for the next move naming Z, the next layer:
+  // a first-layer correction landed one layer late. Unhomed, MOVE=1 would
+  // error, so it stays a pure offset there. The keypad clamps to +/-2 mm,
+  // because with MOVE=1 a mistyped value is a move, not a setting.
   pono::SettingsHandles &se = s->settings_h_;
-  if (t == se.speed) { s->numpad.set_callback([s](double v){ int sp=(int)(v+0.5); sp=sp<10?10:(sp>300?300:sp); s->ws.gcode_script(fmt::format("M220 S{}", sp)); pono::pill_set(s->settings_h_.speed, fmt::format("{}%", sp).c_str()); }); s->numpad.foreground_reset(); return; }
-  if (t == se.flow)  { s->numpad.set_callback([s](double v){ int fl=(int)(v+0.5); fl=fl<50?50:(fl>200?200:fl); s->ws.gcode_script(fmt::format("M221 S{}", fl)); pono::pill_set(s->settings_h_.flow, fmt::format("{}%", fl).c_str()); }); s->numpad.foreground_reset(); return; }
-  if (t == se.pa)    { s->numpad.set_callback([s](double v){ double a=v<0?0:(v>1.0?1.0:v); s->ws.gcode_script(fmt::format("SET_PRESSURE_ADVANCE ADVANCE={:.3f}", a)); pono::pill_set(s->settings_h_.pa, fmt::format("{:.3f}", a).c_str()); }); s->numpad.foreground_reset(); return; }
-  if (t == se.zoff)  { s->numpad.set_callback([s](double v){ s->tune_zoff_=v; s->ws.gcode_script(fmt::format("SET_GCODE_OFFSET Z={:.3f} MOVE=0", v)); pono::pill_set(s->settings_h_.zoff, fmt::format("{:.3f}", v).c_str()); }); s->numpad.foreground_reset(); return; }
-  if (t == se.fan)   { s->numpad.set_callback([s](double v){ int p=(int)(v+0.5); p = p<0?0:(p>100?100:p); s->ws.gcode_script(fmt::format("M106 S{}", p*255/100)); pono::pill_set(s->settings_h_.fan, fmt::format("{}%", p).c_str()); }); s->numpad.foreground_reset(); return; }
-  if (t == se.speed_p[0]) { s->ws.gcode_script("M220 S50");  pono::pill_set(se.speed, "50%");  return; }
-  if (t == se.speed_p[1]) { s->ws.gcode_script("M220 S100"); pono::pill_set(se.speed, "100%"); return; }
-  if (t == se.speed_p[2]) { s->ws.gcode_script("M220 S150"); pono::pill_set(se.speed, "150%"); return; }
-  if (t == se.flow_p[0])  { s->ws.gcode_script("M221 S95");  pono::pill_set(se.flow, "95%");  return; }
-  if (t == se.flow_p[1])  { s->ws.gcode_script("M221 S100"); pono::pill_set(se.flow, "100%"); return; }
-  if (t == se.flow_p[2])  { s->ws.gcode_script("M221 S105"); pono::pill_set(se.flow, "105%"); return; }
-  if (t == se.fan_p[0])   { s->ws.gcode_script("M106 S0");   pono::pill_set(se.fan, "0%");   return; }
-  if (t == se.fan_p[1])   { s->ws.gcode_script("M106 S128"); pono::pill_set(se.fan, "50%");  return; }
-  if (t == se.fan_p[2])   { s->ws.gcode_script("M106 S255"); pono::pill_set(se.fan, "100%"); return; }
-  if (t == se.zoff_minus) { s->tune_zoff_ -= 0.01; s->ws.gcode_script("SET_GCODE_OFFSET Z_ADJUST=-0.01 MOVE=0"); pono::pill_set(se.zoff, fmt::format("{:.3f}", s->tune_zoff_).c_str()); return; }
-  if (t == se.zoff_plus)  { s->tune_zoff_ += 0.01; s->ws.gcode_script("SET_GCODE_OFFSET Z_ADJUST=0.01 MOVE=0");  pono::pill_set(se.zoff, fmt::format("{:.3f}", s->tune_zoff_).c_str()); return; }
+  if (t == se.speed) { s->numpad.set_callback([s](double v){ int sp=(int)(v+0.5); sp=sp<10?10:(sp>300?300:sp); s->ws.gcode_script(fmt::format("M220 S{}", sp)); s->tune_request(TUNE_SPEED, fmt::format("{}%", sp)); }); s->numpad.foreground_reset(); return; }
+  if (t == se.flow)  { s->numpad.set_callback([s](double v){ int fl=(int)(v+0.5); fl=fl<50?50:(fl>200?200:fl); s->ws.gcode_script(fmt::format("M221 S{}", fl)); s->tune_request(TUNE_FLOW, fmt::format("{}%", fl)); }); s->numpad.foreground_reset(); return; }
+  if (t == se.pa)    { s->numpad.set_callback([s](double v){ double a=v<0?0:(v>1.0?1.0:v); s->ws.gcode_script(fmt::format("SET_PRESSURE_ADVANCE ADVANCE={:.3f}", a)); s->tune_request(TUNE_PA, fmt::format("{:.3f}", a)); }); s->numpad.foreground_reset(); return; }
+  if (t == se.zoff)  { s->numpad.set_callback([s](double v){ double z=v<-2.0?-2.0:(v>2.0?2.0:v); s->tune_zoff_ask_=z; s->ws.gcode_script(fmt::format("SET_GCODE_OFFSET Z={:.3f} MOVE={}", z, s->z_move())); s->tune_request(TUNE_ZOFF, fmt::format("{:.3f}", z)); }); s->numpad.foreground_reset(); return; }
+  if (t == se.fan)   { s->numpad.set_callback([s](double v){ int p=(int)(v+0.5); p = p<0?0:(p>100?100:p); s->ws.gcode_script(fmt::format("M106 S{}", p*255/100)); s->tune_request(TUNE_FAN, fmt::format("{}%", p)); }); s->numpad.foreground_reset(); return; }
+  if (t == se.speed_p[0]) { s->ws.gcode_script("M220 S50");  s->tune_request(TUNE_SPEED, "50%");  return; }
+  if (t == se.speed_p[1]) { s->ws.gcode_script("M220 S100"); s->tune_request(TUNE_SPEED, "100%"); return; }
+  if (t == se.speed_p[2]) { s->ws.gcode_script("M220 S150"); s->tune_request(TUNE_SPEED, "150%"); return; }
+  if (t == se.flow_p[0])  { s->ws.gcode_script("M221 S95");  s->tune_request(TUNE_FLOW, "95%");  return; }
+  if (t == se.flow_p[1])  { s->ws.gcode_script("M221 S100"); s->tune_request(TUNE_FLOW, "100%"); return; }
+  if (t == se.flow_p[2])  { s->ws.gcode_script("M221 S105"); s->tune_request(TUNE_FLOW, "105%"); return; }
+  if (t == se.fan_p[0])   { s->ws.gcode_script("M106 S0");   s->tune_request(TUNE_FAN, "0%");   return; }
+  if (t == se.fan_p[1])   { s->ws.gcode_script("M106 S128"); s->tune_request(TUNE_FAN, "50%");  return; }
+  if (t == se.fan_p[2])   { s->ws.gcode_script("M106 S255"); s->tune_request(TUNE_FAN, "100%"); return; }
+  if (t == se.zoff_minus || t == se.zoff_plus) {
+    double d = (t == se.zoff_plus) ? 0.01 : -0.01;
+    // Step from the pending value while one is in flight, so fast taps add up
+    // on the glass the way Z_ADJUST adds them up on the machine.
+    double base = s->tune_ask_[TUNE_ZOFF].empty() ? s->tune_zoff_ : s->tune_zoff_ask_;
+    s->tune_zoff_ask_ = base + d;
+    s->ws.gcode_script(fmt::format("SET_GCODE_OFFSET Z_ADJUST={:.2f} MOVE={}", d, s->z_move()));
+    s->tune_request(TUNE_ZOFF, fmt::format("{:.3f}", s->tune_zoff_ask_));
+    return;
+  }
+}
+
+lv_obj_t *MainPanel::tune_pill(int i) {
+  lv_obj_t *p[TUNE_N] = {settings_h_.speed, settings_h_.flow, settings_h_.zoff, settings_h_.pa, settings_h_.fan};
+  return (i >= 0 && i < TUNE_N) ? p[i] : nullptr;
+}
+
+// Expert Tune readback from a full status (init, root /result/status) or a
+// Moonraker delta (consume, root /params/0). A delta carries a field only when
+// it changes, so an absent field keeps its last value. A pending request clears
+// only when the machine reports that same value. Caller holds lv_lock.
+void MainPanel::read_tune(json &j, const char *root) {
+  auto V = [&](const char *p) { return j.value(json::json_pointer(fmt::format("{}/{}", root, p)), json()); };
+  auto got = [&](int i, const std::string &txt) {
+    tune_txt_[i] = txt;
+    if (tune_ask_[i].empty() || tune_ask_[i] == txt) { tune_ask_[i].clear(); pono::pill_set(tune_pill(i), txt.c_str()); }
+  };
+  auto pct = [](double f) { return (int)(f * 100.0 + 0.5); };  // factors are never negative
+  { auto v = V("gcode_move/speed_factor");
+    if (v.is_number()) {
+      int sp = pct(v.template get<double>());
+      got(TUNE_SPEED, fmt::format("{}%", sp));
+      // The Tune screen's speed slider mirrors the same factor, unless a finger is on it.
+      if (tune_h_.speed && !lv_obj_has_state(tune_h_.speed, LV_STATE_PRESSED)) {
+        lv_slider_set_value(tune_h_.speed, sp, LV_ANIM_OFF);
+        if (tune_h_.speed_val) lv_label_set_text(tune_h_.speed_val, fmt::format("{}%", sp).c_str());
+      }
+    } }
+  { auto v = V("gcode_move/extrude_factor");
+    if (v.is_number()) got(TUNE_FLOW, fmt::format("{}%", pct(v.template get<double>()))); }
+  { auto v = V("gcode_move/homing_origin");
+    if (v.is_array() && v.size() >= 3 && v[2].is_number()) { tune_zoff_ = v[2].template get<double>(); got(TUNE_ZOFF, fmt::format("{:.3f}", tune_zoff_)); } }
+  { auto v = V("extruder/pressure_advance");
+    if (v.is_number()) got(TUNE_PA, fmt::format("{:.3f}", v.template get<double>())); }
+  // Kalico's fan reports value (the request, what M106 S/255 set) and speed
+  // (value times max_power). The pill confirms the request, so it reads value.
+  { auto v = V("fan/value");
+    if (v.is_number()) got(TUNE_FAN, fmt::format("{}%", pct(v.template get<double>()))); }
+}
+
+void MainPanel::tune_request(int i, const std::string &txt) {
+  tune_ask_[i] = txt;
+  pono::pill_pending(tune_pill(i), txt.c_str());
+  if (!tune_settle_) tune_settle_ = lv_timer_create(&MainPanel::_tune_settle, 1500, this);
+  lv_timer_reset(tune_settle_);
+  lv_timer_resume(tune_settle_);
+}
+
+// A request the machine never confirmed gives way to what the machine holds.
+// Runs inside lv_timer_handler, which the main loop already wraps in lv_lock,
+// so it must not relock.
+void MainPanel::_tune_settle(lv_timer_t *t) {
+  auto *s = static_cast<MainPanel *>(t->user_data);
+  lv_timer_pause(t);
+  for (int i = 0; i < TUNE_N; i++) {
+    if (s->tune_ask_[i].empty()) continue;
+    s->tune_ask_[i].clear();
+    if (!s->tune_txt_[i].empty()) pono::pill_set(s->tune_pill(i), s->tune_txt_[i].c_str());
+  }
 }
 
 void MainPanel::_fan_slider_cb(lv_event_t *e) {

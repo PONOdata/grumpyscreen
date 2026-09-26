@@ -110,6 +110,11 @@ class MainPanel : public NotifyConsumer {
   static void _sub_tap(lv_event_t *e);    // sub-screen button -> gcode action
   static void _callog_stop(lv_event_t *e);  // Make Pono STOP -> CANCEL_PRINT (frictionless exit)
   static void _fan_slider_cb(lv_event_t *e);
+  void read_tune(json &j, const char *root);          // Expert Tune readback from a status (init) or delta (consume)
+  lv_obj_t *tune_pill(int i);
+  void tune_request(int i, const std::string &txt);   // show a sent value as pending, arm the settle timer
+  static void _tune_settle(lv_timer_t *t);
+  int z_move() const { return move_homed_.find('z') != std::string::npos ? 1 : 0; }
   static void _file_row_cb(lv_event_t *e);
   static void _tabview_event_cb(lv_event_t *e);
   KWebSocketClient &ws;
@@ -176,7 +181,16 @@ class MainPanel : public NotifyConsumer {
   pono::TuneHandles tune_h_;
   pono::MoreHandles more_h_;
   pono::SettingsHandles settings_h_;
-  double tune_zoff_ = 0.0;         // tracked Z babystep offset (Expert Tune pill)
+  double tune_zoff_ = 0.0;         // machine Z offset, gcode_move.homing_origin[2]
+  // Expert Tune readback: the pills show what Klipper holds (gcode_move,
+  // extruder, fan), not what was sent. A tap shows its request dimmed until the
+  // readback matches; the settle timer puts the machine's value back if the
+  // request never lands (refused, clamped, or changed by a macro or another client).
+  enum { TUNE_SPEED, TUNE_FLOW, TUNE_ZOFF, TUNE_PA, TUNE_FAN, TUNE_N };
+  std::string tune_txt_[TUNE_N];   // machine value, formatted as its pill shows it
+  std::string tune_ask_[TUNE_N];   // pending request text, empty when none
+  double tune_zoff_ask_ = 0.0;     // pending Z offset, the base for the next babystep
+  lv_timer_t *tune_settle_ = nullptr;
   int fil_mat_ = 2;                // selected material segment (0 PLA / 1 PETG / 2 PA-CF)
   int fil_len_ = 100;              // load purge length in mm (slider, used by Load)
   lv_obj_t *mesh_scr_ = nullptr, *system_scr_ = nullptr, *power_scr_ = nullptr, *lights_scr_ = nullptr;

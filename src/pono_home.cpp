@@ -591,11 +591,13 @@ static lv_obj_t *value_pill(lv_obj_t *row, const char *val) {
 }
 
 // Set the value text on a pill returned by value_pill (label is child 0).
-void pill_set(lv_obj_t *pill, const char *txt) {
+static void pill_text(lv_obj_t *pill, const char *txt, lv_opa_t opa) {
   if (!pill) return;
   lv_obj_t *v = lv_obj_get_child(pill, 0);
-  if (v) { lv_label_set_text(v, txt); lv_obj_center(v); }
+  if (v) { lv_label_set_text(v, txt); lv_obj_set_style_text_opa(v, opa, 0); lv_obj_center(v); }
 }
+void pill_set(lv_obj_t *pill, const char *txt)     { pill_text(pill, txt, LV_OPA_COVER); }
+void pill_pending(lv_obj_t *pill, const char *txt) { pill_text(pill, txt, LV_OPA_50); }
 
 // A row of three tappable preset chips (quick values beside the keypad).
 static void chip_row(lv_obj_t *list, const char *a, const char *b, const char *c, lv_obj_t *out[3]) {
