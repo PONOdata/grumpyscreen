@@ -157,7 +157,15 @@ void MainPanel::init(json &j) {
       if (v.is_array() && v.size() >= 3) { move_pos_[0]=v[0].template get<double>(); move_pos_[1]=v[1].template get<double>(); move_pos_[2]=v[2].template get<double>(); } }
     { auto v = V("/result/status/print_stats/state");
       if (!v.is_null()) { std::string s = v.template get<std::string>(); home_printing_ = (s == "printing"); home_paused_ = (s == "paused"); } }
+    // A cal or Make Pono run already under way (a reconnect mid-run): seed what
+    // consume() would have derived, so its overlay and STOP come back with the
+    // cockpit. The step text counts only while busy: an idle machine can still
+    // hold a finished cal's last message, and a manual home would wear it.
+    { auto v = V("/result/status/idle_timeout/state");             if (v.is_string()) busy_ = (v.template get<std::string>() == "Printing"); }
+    { auto v = V("/result/status/display_status/message");
+      cal_msg_ = (busy_ && v.is_string()) ? v.template get<std::string>() : std::string(); }
     rebuild_home();   // reflect actual state (layout + seeded temps/progress/job) immediately
+    sync_cal_overlays(home_printing_);
 
     if (move_h_.pos) {  // same seed for the Move screen position (else "--" until first jog)
       auto axis = [&](char up, char lo, double v) {
@@ -444,6 +452,18 @@ void MainPanel::consume(json &j) {
       auto dv = V("/params/0/display_status/message");
       if (!dv.is_null()) cal_msg_ = dv.template get<std::string>();
     }
+    sync_cal_overlays(printing);
+  }
+}
+
+// The cal overlay and the Make Pono logbook, derived from busy_ and cal_msg_.
+// consume() runs it on every delta; init() runs it on the subscribe snapshot,
+// because after a link drop reset_overlay_state() cleared both and Moonraker
+// sends no delta for an idle_timeout state that did not change, so a cal still
+// running would otherwise lose its overlay and its STOP until it ended. Caller
+// holds lv_lock.
+void MainPanel::sync_cal_overlays(bool printing) {
+  {
     bool cal_active = busy_ && !printing && cal_msg_.rfind("Calibrating", 0) == 0 && !prompt_panel.is_showing();
     if (cal_active) {
       if (!cal_overlay_ || cal_msg_ != cal_overlay_text_) {
@@ -571,6 +591,45 @@ void MainPanel::reset_overlay_state() {
   callog_fault_ = false;
   prompt_panel.reset();       // a prompt up at link-loss never gets prompt_end -> showing_ would stay true and suppress the cal overlay all session
   busy_ = false;
+  cal_msg_.clear();           // pre-drop step text must not dress up a later manual home as a cal (init re-seeds it)
+}
+
+// The boot cover lives on the active screen, and LVGL draws (and hit-tests) the
+// top layer over the active screen whatever the z-order there says. So anything
+// on the top layer at link loss rode over the boot screen: measured on the glass
+// 2026-09-25, the E-STOP sat on the flag through every Klipper restart. While the
+// cover is up the whole top layer is hidden, which takes the E-STOP, the busy and
+// cal overlays, the logbook, the keypad and every modal off the glass and out of
+// touch in one move, including any overlay a status update re-shows during the
+// handshake. The E-STOP cannot act then anyway (Klipper is not ready, or the link
+// is down; the rear rocker is the stop). A confirm, notice or keypad left open
+// would answer for a machine state that no longer exists, so those are closed
+// too, not just hidden. Caller holds lv_lock.
+void MainPanel::set_boot_cover(bool up) {
+  boot_cover_ = up;
+  if (up) {
+    lv_obj_add_flag(lv_layer_top(), LV_OBJ_FLAG_HIDDEN);
+    reset_overlay_state();
+    pending_confirm_ = nullptr;
+    lv_obj_t *modal[] = {confirm_h_.card, confirm_h_.scrim, notice_h_.card, notice_h_.scrim};
+    for (lv_obj_t *o : modal)
+      if (o) { lv_obj_add_flag(o, LV_OBJ_FLAG_HIDDEN); lv_obj_move_background(o); }
+    numpad.dismiss();
+  } else {
+    // The cover is still opaque here and fades out over this: the cockpit comes
+    // back on Home with every sub-screen closed, and the top layer stays dark
+    // until the fade ends (boot_cover_cleared), so the E-STOP does not pop in
+    // over a half-faded boot screen.
+    back_to_home();
+  }
+}
+
+// The boot cover has finished fading out: light the top layer (E-STOP first).
+// Ignored if the cover rose again before the fade ended. Caller holds lv_lock.
+void MainPanel::boot_cover_cleared() {
+  if (boot_cover_) return;
+  lv_obj_clear_flag(lv_layer_top(), LV_OBJ_FLAG_HIDDEN);
+  if (estop_btn_) lv_obj_move_foreground(estop_btn_);
 }
 
 // Make Pono STOP: stop the calibration. The exit stays frictionless (no confirm)
@@ -715,6 +774,8 @@ void MainPanel::create_pono_screens() {
     // dtor so a torn-down panel cannot leave the timer dereferencing freed self.
     estop_keepalive_timer_ = lv_timer_create(&MainPanel::_estop_keepalive, 300, this);
   }
+  // The boot cover is up at start, so the top layer starts dark (set_boot_cover).
+  if (boot_cover_) lv_obj_add_flag(lv_layer_top(), LV_OBJ_FLAG_HIDDEN);
 }
 
 // Persistent E-STOP tap: gate the full kill behind one confirm, then fire
@@ -1648,17 +1709,24 @@ void MainPanel::create_fans(json &fans) {
   fan_panel.create_fans(fans);
 }
 
+// Runs on the ws thread (the printer.objects.list reply), so the button writes
+// take lv_lock. Not across led_panel.init: it takes the same non-recursive lock.
 void MainPanel::create_leds(json &leds) {
-  if (leds.is_array() && !leds.empty()) {
-    led_btn.enable();
-  } else {
-    led_btn.disable();
+  {
+    std::lock_guard<std::mutex> lock(lv_lock);
+    if (leds.is_array() && !leds.empty()) {
+      led_btn.enable();
+    } else {
+      led_btn.disable();
+    }
   }
   led_panel.init(leds);
+  std::lock_guard<std::mutex> lock(lv_lock);
   led_btn.set_image(led_panel.get_main_button_image());
 }
 
 void MainPanel::enable_spoolman() {
   spoolman_panel.init();
+  std::lock_guard<std::mutex> lock(lv_lock);   // ws thread (server.info reply); a button write
   extruder_panel.enable_spoolman();
 }

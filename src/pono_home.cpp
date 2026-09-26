@@ -1410,13 +1410,63 @@ void build_boot(lv_obj_t *parent, BootHandles *h) {
   lv_obj_t *ded = lbl(parent, "For Elio and Io", font_serif_xl, color_accent_primary, 0, 0);
   lv_obj_align(ded, LV_ALIGN_BOTTOM_MID, 0, -6);
   if (h) h->dedication = ded;
+
+  // The fault view (boot_show_fault), built hidden. Klipper's own reason, two
+  // lines at most, under the headline; then the one way out, where the
+  // dedication sits, lit amber because it is the only action on the screen.
+  lv_obj_t *rs = lbl(parent, "", font_caption, color_text_secondary, 0, 0);
+  lv_obj_set_width(rs, 440);
+  lv_obj_set_height(rs, 2 * lv_font_get_line_height(font_caption));
+  lv_label_set_long_mode(rs, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_align(rs, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_align(rs, LV_ALIGN_TOP_MID, 0, band + 22);
+  lv_obj_add_flag(rs, LV_OBJ_FLAG_HIDDEN);
+  if (h) h->reason = rs;
+
+  lv_obj_t *act = lamp_btn(parent, (480 - 200) / 2, 272 - 8 - 36, 200, 36, "Restart firmware", font_body);
+  lv_obj_add_flag(act, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_ext_click_area(act, 8);   // the resistive panel wants a generous target
+  if (h) h->action = act;
+}
+
+void boot_show_loading(BootHandles *h) {
+  if (!h) return;
+  if (h->status) {
+    lv_obj_set_style_text_font(h->status, font_caption, 0);
+    lv_obj_set_style_text_color(h->status, color_text_secondary, 0);
+  }
+  if (h->reason) lv_obj_add_flag(h->reason, LV_OBJ_FLAG_HIDDEN);
+  if (h->action) lv_obj_add_flag(h->action, LV_OBJ_FLAG_HIDDEN);
+  if (h->bar) lv_obj_clear_flag(h->bar, LV_OBJ_FLAG_HIDDEN);
+  if (h->dedication) lv_obj_clear_flag(h->dedication, LV_OBJ_FLAG_HIDDEN);
+}
+
+void boot_show_fault(BootHandles *h, const char *headline, const char *reason) {
+  if (!h) return;
+  if (h->status) {
+    lv_obj_set_style_text_font(h->status, font_body, 0);
+    lv_obj_set_style_text_color(h->status, color_text_primary, 0);
+    lv_obj_set_style_opa(h->status, LV_OPA_COVER, 0);
+    if (headline) lv_label_set_text(h->status, headline);
+  }
+  if (h->reason) {
+    lv_label_set_text(h->reason, reason ? reason : "");
+    if (reason && *reason) lv_obj_clear_flag(h->reason, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(h->reason, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (h->bar) lv_obj_add_flag(h->bar, LV_OBJ_FLAG_HIDDEN);
+  if (h->dedication) lv_obj_add_flag(h->dedication, LV_OBJ_FLAG_HIDDEN);
+  if (h->action) lv_obj_clear_flag(h->action, LV_OBJ_FLAG_HIDDEN);
 }
 
 void boot_set_progress(BootHandles *h, int pct, const char *stage) {
   if (!h) return;
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
-  if (h->bar) lv_bar_set_value(h->bar, pct, LV_ANIM_ON);
+  if (h->bar) {
+    const bool forward = pct >= lv_bar_get_value(h->bar);
+    lv_bar_set_value(h->bar, pct, forward ? LV_ANIM_ON : LV_ANIM_OFF);
+  }
   if (h->status && stage) lv_label_set_text(h->status, stage);
 }
 

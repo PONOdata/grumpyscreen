@@ -41,6 +41,8 @@ class MainPanel : public NotifyConsumer {
   void create_panel();
   void show_home();                      // Pono: bring the native cockpit to front (on connect)
   void reset_overlay_state();            // Pono: clear busy/cal overlay tracking on link loss (InitPanel::disconnected)
+  void set_boot_cover(bool up);          // Pono: the boot cover rose (top layer dark, modals closed) or is falling (cockpit back on Home)
+  void boot_cover_cleared();             // Pono: the cover finished fading out; light the top layer (E-STOP)
   static void _home_tap(lv_event_t *e);  // Pono: cockpit tile -> existing control panels
   void create_sensors(json &temp_sensors);
   void create_fans(json &temp_fans);
@@ -97,6 +99,7 @@ class MainPanel : public NotifyConsumer {
   void show_pono(lv_obj_t *scr);          // hide cockpit + others, reveal scr
   void back_to_home();                    // hide all sub-screens, show the cockpit
   void hide_busy_overlay();               // Pono: drop the shared busy/cal overlay + clear cal_overlay_ (so consume() can re-show cal after a manual action)
+  void sync_cal_overlays(bool printing);  // Pono: show/hide the cal overlay and the Make Pono logbook from busy_ + cal_msg_ (consume and init)
   void populate_system();                 // fill the System screen (version/ip/uptime)
   void check_update();                    // async: compare the firmware host's published build to /etc/pono-version
   void confirm(const char *msg, std::function<void()> action);  // modal confirm before destructive actions
@@ -213,6 +216,7 @@ class MainPanel : public NotifyConsumer {
   pono::IntegrityState integrity_ = pono::IntegrityState::Unknown;  // badge state (drives the badge tap)
   bool unofficial_notice_shown_ = false;      // auto-show the unofficial notice once per UI run
   lv_obj_t *estop_btn_ = nullptr;             // persistent full-kill E-STOP on lv_layer_top()
+  bool boot_cover_ = true;                    // the boot cover is up (it is at start); the top layer is hidden while it is
   std::vector<float> mesh_z_;      // flattened probed_matrix for the heatmap
   double move_step_ = 1.0;        // selected jog step (mm)
   std::vector<std::string> files_names_;  // index -> gcode filename for row taps

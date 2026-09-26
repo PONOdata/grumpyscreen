@@ -17,7 +17,8 @@ $bin  = 'C:\Strawberry\c\bin'
 $gcc  = Join-Path $bin 'gcc.exe'
 $gpp  = Join-Path $bin 'g++.exe'
 $ar   = Join-Path $bin 'ar.exe'
-$root = 'C:\Brofalo\grumpyscreen'
+# The repo root is this script's parent directory, wherever the checkout lives.
+$root = Split-Path -Parent $PSScriptRoot
 $sim  = Join-Path $root 'sim'
 $obj  = Join-Path $sim '_obj'
 New-Item -ItemType Directory -Force $obj | Out-Null
