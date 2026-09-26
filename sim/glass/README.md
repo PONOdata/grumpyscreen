@@ -48,3 +48,5 @@ To get the saver up quickly, lower `display_sleep_sec` in
 - A running binary cannot be overwritten in place. Upload beside it and
   `mv -f` it over.
 - `estop` sends M112. Use it only with the printer idle and someone watching it.
+  Klipper stays shut down afterwards; clear it with
+  `curl -X POST http://<printer>/printer/firmware_restart`.

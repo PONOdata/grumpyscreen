@@ -50,7 +50,7 @@ class InitPanel {
   // the screen.
   std::atomic<unsigned> conn_epoch_{0};
 
-  // Everything below is touched only under lv_lock.
+  // The state block below (down to restart_grace_) is touched only under lv_lock.
   bool cover_up_ = true;              // the boot cover owns the glass (true at start)
   bool handshaking_ = false;          // a ready-state handshake is in flight for this epoch
   bool intro_done_ = false;           // the first handoff waits out the intro, later ones do not
@@ -62,6 +62,7 @@ class InitPanel {
   uint32_t restart_grace_until_ = 0;  // after a Restart tap, a stale shutdown reply does not re-show the fault
   bool restart_grace_ = false;
 
+  // Collaborators; safe from either thread.
   KWebSocketClient &ws;
   MainPanel &main_panel;
   std::mutex &lv_lock;
