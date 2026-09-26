@@ -11,12 +11,12 @@ concurrency:
 jobs:
   enable:
     if: ${{ github.event.pull_request.draft == false }}
-    # Our own Linux pool, not a metered image. This job is pure API, so it
-    # needs nothing a hosted image provides. It fires on every pull request in
-    # every repo carrying it, which made it the largest single source of
-    # metered runs in the org. The template it came from carries the full
-    # reasoning, including the runner-occupancy trade-off this accepts.
-    runs-on: [self-hosted, X64, Linux, pono-runner]
+    # GitHub-hosted, because this repo is PUBLIC. Hosted minutes cost nothing
+    # on a public repo, and the org's self-hosted runner group does not serve
+    # public repos, so the move to the pono-runner pool in #61 left this job
+    # queued on every PR from 2026-09-12: #64 and #65 sat green and unmerged
+    # until merged by hand. pono-kalico, also public, runs it on ubuntu-latest.
+    runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       # A merge attributed to GITHUB_TOKEN creates no workflow runs, so an automerged
