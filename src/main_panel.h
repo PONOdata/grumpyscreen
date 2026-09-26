@@ -190,6 +190,8 @@ class MainPanel : public NotifyConsumer {
   std::string tune_txt_[TUNE_N];   // machine value, formatted as its pill shows it
   std::string tune_ask_[TUNE_N];   // pending request text, empty when none
   double tune_zoff_ask_ = 0.0;     // pending Z offset, the base for the next babystep
+  int tune_speed_ = 100, tune_speed_ask_ = 100;  // machine and pending speed %, the base for the next step
+  int rend_melt_ = INT_MIN;        // melt readout shadow, tenths of mm3/s
   lv_timer_t *tune_settle_ = nullptr;
   int fil_mat_ = 2;                // selected material segment (0 PLA / 1 PETG / 2 PA-CF)
   int fil_len_ = 100;              // load purge length in mm (slider, used by Load)

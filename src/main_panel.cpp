@@ -677,6 +677,7 @@ void MainPanel::create_pono_screens() {
     settings_h_.flow_p[0], settings_h_.flow_p[1], settings_h_.flow_p[2],
     settings_h_.fan_p[0], settings_h_.fan_p[1], settings_h_.fan_p[2],
     settings_h_.zoff_minus, settings_h_.zoff_plus,
+    settings_h_.speed_minus, settings_h_.speed_plus,
   };
   for (lv_obj_t *t : taps) if (t) lv_obj_add_event_cb(t, &MainPanel::_sub_tap, LV_EVENT_CLICKED, this);
   for (int i = 0; i < 3; i++)
@@ -1237,20 +1238,29 @@ void MainPanel::_sub_tap(lv_event_t *e) {
   // error, so it stays a pure offset there. The keypad clamps to +/-2 mm,
   // because with MOVE=1 a mistyped value is a move, not a setting.
   pono::SettingsHandles &se = s->settings_h_;
-  if (t == se.speed) { s->numpad.set_callback([s](double v){ int sp=(int)(v+0.5); sp=sp<10?10:(sp>300?300:sp); s->ws.gcode_script(fmt::format("M220 S{}", sp)); s->tune_request(TUNE_SPEED, fmt::format("{}%", sp)); }); s->numpad.foreground_reset(); return; }
+  if (t == se.speed) { s->numpad.set_callback([s](double v){ int sp=(int)(v+0.5); sp=sp<10?10:(sp>300?300:sp); s->tune_speed_ask_=sp; s->ws.gcode_script(fmt::format("M220 S{}", sp)); s->tune_request(TUNE_SPEED, fmt::format("{}%", sp)); }); s->numpad.foreground_reset(); return; }
   if (t == se.flow)  { s->numpad.set_callback([s](double v){ int fl=(int)(v+0.5); fl=fl<50?50:(fl>200?200:fl); s->ws.gcode_script(fmt::format("M221 S{}", fl)); s->tune_request(TUNE_FLOW, fmt::format("{}%", fl)); }); s->numpad.foreground_reset(); return; }
   if (t == se.pa)    { s->numpad.set_callback([s](double v){ double a=v<0?0:(v>1.0?1.0:v); s->ws.gcode_script(fmt::format("SET_PRESSURE_ADVANCE ADVANCE={:.3f}", a)); s->tune_request(TUNE_PA, fmt::format("{:.3f}", a)); }); s->numpad.foreground_reset(); return; }
   if (t == se.zoff)  { s->numpad.set_callback([s](double v){ double z=v<-2.0?-2.0:(v>2.0?2.0:v); s->tune_zoff_ask_=z; s->ws.gcode_script(fmt::format("SET_GCODE_OFFSET Z={:.3f} MOVE={}", z, s->z_move())); s->tune_request(TUNE_ZOFF, fmt::format("{:.3f}", z)); }); s->numpad.foreground_reset(); return; }
   if (t == se.fan)   { s->numpad.set_callback([s](double v){ int p=(int)(v+0.5); p = p<0?0:(p>100?100:p); s->ws.gcode_script(fmt::format("M106 S{}", p*255/100)); s->tune_request(TUNE_FAN, fmt::format("{}%", p)); }); s->numpad.foreground_reset(); return; }
-  if (t == se.speed_p[0]) { s->ws.gcode_script("M220 S50");  s->tune_request(TUNE_SPEED, "50%");  return; }
-  if (t == se.speed_p[1]) { s->ws.gcode_script("M220 S100"); s->tune_request(TUNE_SPEED, "100%"); return; }
-  if (t == se.speed_p[2]) { s->ws.gcode_script("M220 S150"); s->tune_request(TUNE_SPEED, "150%"); return; }
+  if (t == se.speed_p[0]) { s->tune_speed_ask_ = 50;  s->ws.gcode_script("M220 S50");  s->tune_request(TUNE_SPEED, "50%");  return; }
+  if (t == se.speed_p[1]) { s->tune_speed_ask_ = 100; s->ws.gcode_script("M220 S100"); s->tune_request(TUNE_SPEED, "100%"); return; }
+  if (t == se.speed_p[2]) { s->tune_speed_ask_ = 150; s->ws.gcode_script("M220 S150"); s->tune_request(TUNE_SPEED, "150%"); return; }
   if (t == se.flow_p[0])  { s->ws.gcode_script("M221 S95");  s->tune_request(TUNE_FLOW, "95%");  return; }
   if (t == se.flow_p[1])  { s->ws.gcode_script("M221 S100"); s->tune_request(TUNE_FLOW, "100%"); return; }
   if (t == se.flow_p[2])  { s->ws.gcode_script("M221 S105"); s->tune_request(TUNE_FLOW, "105%"); return; }
   if (t == se.fan_p[0])   { s->ws.gcode_script("M106 S0");   s->tune_request(TUNE_FAN, "0%");   return; }
   if (t == se.fan_p[1])   { s->ws.gcode_script("M106 S128"); s->tune_request(TUNE_FAN, "50%");  return; }
   if (t == se.fan_p[2])   { s->ws.gcode_script("M106 S255"); s->tune_request(TUNE_FAN, "100%"); return; }
+  if (t == se.speed_minus || t == se.speed_plus) {
+    int base = s->tune_ask_[TUNE_SPEED].empty() ? s->tune_speed_ : s->tune_speed_ask_;
+    int sp = base + ((t == se.speed_plus) ? 5 : -5);
+    sp = sp<10?10:(sp>300?300:sp);
+    s->tune_speed_ask_ = sp;
+    s->ws.gcode_script(fmt::format("M220 S{}", sp));
+    s->tune_request(TUNE_SPEED, fmt::format("{}%", sp));
+    return;
+  }
   if (t == se.zoff_minus || t == se.zoff_plus) {
     double d = (t == se.zoff_plus) ? 0.01 : -0.01;
     // Step from the pending value while one is in flight, so fast taps add up
@@ -1282,6 +1292,7 @@ void MainPanel::read_tune(json &j, const char *root) {
   { auto v = V("gcode_move/speed_factor");
     if (v.is_number()) {
       int sp = pct(v.template get<double>());
+      tune_speed_ = sp;
       got(TUNE_SPEED, fmt::format("{}%", sp));
       // The Tune screen's speed slider mirrors the same factor, unless a finger is on it.
       if (tune_h_.speed && !lv_obj_has_state(tune_h_.speed, LV_STATE_PRESSED)) {
@@ -1299,6 +1310,21 @@ void MainPanel::read_tune(json &j, const char *root) {
   // (value times max_power). The pill confirms the request, so it reads value.
   { auto v = V("fan/value");
     if (v.is_number()) got(TUNE_FAN, fmt::format("{}%", pct(v.template get<double>()))); }
+  // Melt rate: filament velocity times the 1.75 mm filament's 2.405 mm2
+  // section. Retractions read negative and show as 0. The lamp lights at the
+  // hotend's ~9 mm3/s melt ceiling (pono-print skill), where a faster speed
+  // factor stops being faster and starts under-extruding.
+  { auto v = V("motion_report/live_extruder_velocity");
+    if (v.is_number() && settings_h_.melt) {
+      double q = v.template get<double>() * 2.405;
+      int tenths = q > 0 ? (int)(q * 10.0 + 0.5) : 0;
+      if (tenths != rend_melt_) {
+        rend_melt_ = tenths;
+        lv_label_set_text(settings_h_.melt, fmt::format("{:.1f} mm3/s", tenths / 10.0).c_str());
+        lv_obj_set_style_text_color(settings_h_.melt, tenths >= 90 ? pono::color_accent_primary : pono::color_accent_secondary, 0);
+        lv_obj_align(settings_h_.melt, LV_ALIGN_RIGHT_MID, -16, 0);
+      }
+    } }
 }
 
 void MainPanel::tune_request(int i, const std::string &txt) {
