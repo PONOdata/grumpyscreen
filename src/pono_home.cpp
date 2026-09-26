@@ -640,30 +640,42 @@ void build_settings(lv_obj_t *parent, SettingsHandles *h) {
   lv_obj_set_style_width(list, 3, LV_PART_SCROLLBAR);
   lv_obj_set_style_radius(list, radius_sm, LV_PART_SCROLLBAR);
 
-  // Speed factor (M220) + quick presets
-  { lv_obj_t *p = value_pill(setting_row(list, "Speed factor"), "100%"); if (h) h->speed = p; }
-  { lv_obj_t *c[3]; chip_row(list, "50%", "100%", "150%", c); if (h) { h->speed_p[0] = c[0]; h->speed_p[1] = c[1]; h->speed_p[2] = c[2]; } }
-
-  // Flow factor (M221) + quick presets
-  { lv_obj_t *p = value_pill(setting_row(list, "Flow factor"), "100%"); if (h) h->flow = p; }
-  { lv_obj_t *c[3]; chip_row(list, "95%", "100%", "105%", c); if (h) { h->flow_p[0] = c[0]; h->flow_p[1] = c[1]; h->flow_p[2] = c[2]; } }
-
-  // Z-offset (live babystep via SET_GCODE_OFFSET): [-] value [+], value also keypad-tappable
-  {
-    lv_obj_t *r = setting_row(list, "Z-offset");
+  // A [-] value [+] row: the value stays keypad-tappable, the buttons step it.
+  auto stepper = [&](const char *name, const char *val, lv_obj_t **minus, lv_obj_t **pill, lv_obj_t **plus) {
+    lv_obj_t *r = setting_row(list, name);
     lv_obj_t *pls = card(r, 0, 0, 34, 28, color_surface_elevated);
     hairline(pls);
     lv_obj_align(pls, LV_ALIGN_RIGHT_MID, -8, 0);
     lv_obj_center(lbl(pls, LV_SYMBOL_PLUS, &lv_font_montserrat_14, color_text_primary, 0, 0));
-    lv_obj_t *pv = value_pill(r, "0.000");
+    lv_obj_t *pv = value_pill(r, val);
     lv_obj_set_width(pv, 68);
     lv_obj_align(pv, LV_ALIGN_RIGHT_MID, -48, 0);
     lv_obj_t *mns = card(r, 0, 0, 34, 28, color_surface_elevated);
     hairline(mns);
     lv_obj_align(mns, LV_ALIGN_RIGHT_MID, -122, 0);
     lv_obj_center(lbl(mns, LV_SYMBOL_MINUS, &lv_font_montserrat_14, color_text_primary, 0, 0));
-    if (h) { h->zoff = pv; h->zoff_plus = pls; h->zoff_minus = mns; }
+    *minus = mns; *pill = pv; *plus = pls;
+  };
+  SettingsHandles dummy;
+  SettingsHandles *o = h ? h : &dummy;
+
+  // Speed factor (M220): 5% steps, quick presets, and the melt rate it asks
+  // for. A speed-up that outruns the hotend shows here before it prints.
+  stepper("Speed factor", "100%", &o->speed_minus, &o->speed, &o->speed_plus);
+  { lv_obj_t *c[3]; chip_row(list, "50%", "100%", "150%", c); if (h) { h->speed_p[0] = c[0]; h->speed_p[1] = c[1]; h->speed_p[2] = c[2]; } }
+  {
+    lv_obj_t *r = setting_row(list, "Melt rate");
+    lv_obj_t *m = lbl(r, "-- mm3/s", font_caption, color_accent_secondary, 0, 0);
+    lv_obj_align(m, LV_ALIGN_RIGHT_MID, -16, 0);
+    if (h) h->melt = m;
   }
+
+  // Flow factor (M221) + quick presets
+  { lv_obj_t *p = value_pill(setting_row(list, "Flow factor"), "100%"); if (h) h->flow = p; }
+  { lv_obj_t *c[3]; chip_row(list, "95%", "100%", "105%", c); if (h) { h->flow_p[0] = c[0]; h->flow_p[1] = c[1]; h->flow_p[2] = c[2]; } }
+
+  // Z-offset (live babystep via SET_GCODE_OFFSET)
+  stepper("Z-offset", "0.000", &o->zoff_minus, &o->zoff, &o->zoff_plus);
 
   // Pressure advance (SET_PRESSURE_ADVANCE)
   { lv_obj_t *p = value_pill(setting_row(list, "Pressure advance"), "0.040"); if (h) h->pa = p; }

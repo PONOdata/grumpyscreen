@@ -221,6 +221,8 @@ struct SettingsHandles {
   lv_obj_t *flow_p[3]  = {nullptr, nullptr, nullptr};   // 95 / 100 / 105 %
   lv_obj_t *fan_p[3]   = {nullptr, nullptr, nullptr};   // Off / 50 / Full
   lv_obj_t *zoff_minus = nullptr, *zoff_plus = nullptr; // -/+ 0.01 babystep
+  lv_obj_t *speed_minus = nullptr, *speed_plus = nullptr; // -/+ 5 % speed
+  lv_obj_t *melt = nullptr;                              // live melt rate readout, mm3/s
 };
 void build_settings(lv_obj_t *parent, SettingsHandles *h = nullptr);
 
