@@ -53,8 +53,20 @@ struct BootHandles {
   lv_obj_t *bar = nullptr;        // legit progress bar (0..100, app-driven)
   lv_obj_t *dedication = nullptr; // "For Elio and Io"; the intro fades it in last
   lv_obj_t *spinner = nullptr;    // retired 2026-06-11 (same order); stays null
+  lv_obj_t *reason = nullptr;     // fault only: Klipper's own reason, under the headline
+  lv_obj_t *action = nullptr;     // fault only: the one recovery button (app wires the tap)
 };
 void build_boot(lv_obj_t *parent, BootHandles *h = nullptr);
+
+// The loading layout: status + bar + dedication, fault widgets hidden. Idempotent,
+// so every stage update can call it to leave a fault view. NULL-safe.
+void boot_show_loading(BootHandles *h);
+
+// The fault layout, for a Klipper that stopped (shutdown) or cannot start
+// (error). The headline takes the status line, Klipper's own reason sits under
+// it, and the recovery button takes the dedication's place; the bar hides,
+// because nothing is loading. reason may be empty. NULL-safe.
+void boot_show_fault(BootHandles *h, const char *headline, const char *reason);
 
 // Act 1: the one-shot boot wake. The flag, joke, and dedication fade and rise
 // in, eased, the dedication landing last; the progress bar + status are held
@@ -68,7 +80,9 @@ void boot_play_intro(BootHandles *h);
 void boot_reveal_progress(BootHandles *h);
 
 // Set the boot progress bar + status line together (one honest stage update).
-// pct 0..100; stage is the short status text. NULL-safe on every handle.
+// pct 0..100; stage is the short status text. The bar animates forward only: a
+// lower value (the cover re-raised after Ready) snaps, so it never runs
+// backwards on the glass. NULL-safe on every handle.
 void boot_set_progress(BootHandles *h, int pct, const char *stage);
 
 // Live handles into a built home. The app keeps these to update values in

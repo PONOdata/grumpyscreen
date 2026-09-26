@@ -114,6 +114,7 @@ int main(int argc, char **argv) {
     // to a mid-load stage so the bar + status read as they will on the device.
     lv_obj_t *scr = lv_scr_act();
     lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);   // as init_panel's cont: the flag's wake must not show scrollbars
     static pono::BootHandles bh;
     pono::build_boot(scr, &bh);
     // Seed the longest joke so the wrap region is stress-tested (the app cycles
@@ -128,17 +129,39 @@ int main(int argc, char **argv) {
     lv_timer_t *r = lv_timer_create([](lv_timer_t *t) {
       auto *h = (pono::BootHandles *)t->user_data;
       pono::boot_reveal_progress(h);
-      pono::boot_set_progress(h, 22, "Connecting to Moonraker...");
+      pono::boot_set_progress(h, 22, "Reading the printer...");
     }, 1600, &bh);
     lv_timer_set_repeat_count(r, 1);
     lv_timer_t *s2 = lv_timer_create([](lv_timer_t *t) {
-      pono::boot_set_progress((pono::BootHandles *)t->user_data, 58, "Loading printer state...");
+      pono::boot_set_progress((pono::BootHandles *)t->user_data, 55, "Loading printer state...");
     }, 2200, &bh);
     lv_timer_set_repeat_count(s2, 1);
     lv_timer_t *s3 = lv_timer_create([](lv_timer_t *t) {
       pono::boot_set_progress((pono::BootHandles *)t->user_data, 100, "Ready");
     }, 2800, &bh);
     lv_timer_set_repeat_count(s3, 1);
+  } else if (screen == "boot_fault" || screen == "boot_error") {
+    // The fault view init_panel shows when printer.info reports shutdown or
+    // error: Klipper's own reason and the Restart firmware action. boot_error
+    // carries a long config error to prove the two-line reason wrap.
+    lv_obj_t *scr = lv_scr_act();
+    lv_obj_set_style_pad_all(scr, 0, 0);
+    lv_obj_clear_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
+    static pono::BootHandles bh;
+    static bool err = (screen == "boot_error");
+    pono::build_boot(scr, &bh);
+    pono::boot_set_progress(&bh, 4, "Waiting for Klipper to start...");
+    pono::boot_play_intro(&bh);
+    lv_timer_t *f = lv_timer_create([](lv_timer_t *t) {
+      auto *h = (pono::BootHandles *)t->user_data;
+      pono::boot_reveal_progress(h);
+      if (err)
+        pono::boot_show_fault(h, "Klipper can't start",
+          "Option 'max_accel' in section 'printer' must have minimum of 1.0 but the value read from printer.cfg was 0.0");
+      else
+        pono::boot_show_fault(h, "Klipper stopped", "Shutdown due to M112 command");
+    }, 1600, &bh);
+    lv_timer_set_repeat_count(f, 1);
   } else if (screen == "move") {
     pono::build_move(lv_scr_act());
   } else if (screen == "filament") {

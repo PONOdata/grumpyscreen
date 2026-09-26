@@ -13,6 +13,7 @@ class Numpad {
   void handle_input(lv_event_t *event);
   /* void handle_defocused(lv_event_t *event); */
   void foreground_reset();
+  void dismiss();   // hide card + scrim, restore z-order (also used when the boot cover rises)
 
   static void _handle_input(lv_event_t *event) {
     Numpad *panel = (Numpad*)event->user_data;
@@ -30,7 +31,6 @@ class Numpad {
   /* }; */
 
  private:
-  void dismiss();   // hide card + scrim, restore z-order
   lv_obj_t *scrim;  // full-screen modal backdrop (declared first -> lower z than card)
   lv_obj_t *edit_cont;
   lv_obj_t *input;

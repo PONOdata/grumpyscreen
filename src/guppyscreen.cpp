@@ -29,7 +29,7 @@ std::mutex GuppyScreen::lv_lock;
 GuppyScreen::GuppyScreen()
   : spoolman_panel(ws, lv_lock)
   , main_panel(ws, lv_lock, spoolman_panel)
-  , init_panel(main_panel, lv_lock)
+  , init_panel(ws, main_panel, lv_lock)
 {
   main_panel.create_panel();
 }
@@ -113,14 +113,21 @@ GuppyScreen *GuppyScreen::init(std::function<void(lv_color_t, lv_color_t)> hal_i
                                    conf->get<std::string>("/moonraker/host"),
                                    conf->get<uint32_t>("/moonraker/port"));
 
+  // Screen saver on the system layer, the one LVGL draws and hit-tests above
+  // the top layer. On the active screen it sat under the top layer, so the
+  // E-STOP drew over the saver and the tap that wakes the display landed on
+  // the E-STOP. Up here the saver takes that tap itself. Built before the
+  // socket opens so no ws callback can touch LVGL while it is being made.
+  screen_saver = lv_obj_create(lv_layer_sys());
+  lv_obj_remove_style_all(screen_saver);
+  lv_obj_set_size(screen_saver, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(screen_saver, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(screen_saver, LV_OPA_COVER, 0);
+  lv_obj_clear_flag(screen_saver, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(screen_saver, LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_HIDDEN);
+
   LOG_INFO("connecting to printer at {}", ws_url);
   gs->connect_ws(ws_url);
-
-  screen_saver = lv_obj_create(lv_scr_act());
-
-  lv_obj_set_size(screen_saver, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_opa(screen_saver, LV_OPA_100, 0);
-  lv_obj_move_background(screen_saver);
 
 #ifdef GUPPY_CALIBRATE
   lv_obj_t *main_screen = lv_disp_get_scr_act(NULL);
@@ -160,7 +167,10 @@ void GuppyScreen::loop() {
         if (!is_sleeping.load()) {
           LOG_DEBUG("putting display to sleeping");
           fbdev_blank();
-          lv_obj_move_foreground(screen_saver);
+          {
+            std::lock_guard<std::mutex> lock(lv_lock);   // the ws thread writes LVGL too
+            lv_obj_clear_flag(screen_saver, LV_OBJ_FLAG_HIDDEN);
+          }
           // LOG_DEBUG("screen saver foreground");
           is_sleeping = true;
         }
@@ -168,7 +178,10 @@ void GuppyScreen::loop() {
         if (is_sleeping.load()) {
           LOG_DEBUG("waking up display");
           fbdev_unblank();
-          lv_obj_move_background(screen_saver);
+          {
+            std::lock_guard<std::mutex> lock(lv_lock);
+            lv_obj_add_flag(screen_saver, LV_OBJ_FLAG_HIDDEN);
+          }
           is_sleeping = false;
         }
       }
