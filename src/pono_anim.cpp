@@ -134,9 +134,9 @@ void omega_status_show(const char *text) {
   if (g_omega == nullptr) {
     g_omega = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(g_omega);
-    // The whole header row, so the E-STOP sits inside the strip instead of
-    // hanging off its bottom edge.
-    lv_obj_set_size(g_omega, LV_PCT(100), estop_clear_y);
+    // Stop at the E-STOP keep-out: this banner is moved to the foreground on
+    // every update, so a full-width strip would paint and hit above the E-STOP.
+    lv_obj_set_size(g_omega, estop_clear_x, estop_clear_y);
     lv_obj_set_pos(g_omega, 0, 0);
     lv_obj_set_style_bg_color(g_omega, color_state_warning, 0);  // OMEGA amber
     lv_obj_set_style_bg_opa(g_omega, LV_OPA_COVER, 0);
@@ -144,7 +144,7 @@ void omega_status_show(const char *text) {
     g_omega_label = lv_label_create(g_omega);
     lv_obj_set_style_text_color(g_omega_label, color_surface_base, 0);  // dark on amber
     lv_obj_set_style_text_font(g_omega_label, font_body, 0);
-    lv_obj_set_style_text_align(g_omega_label, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_set_style_text_align(g_omega_label, LV_TEXT_ALIGN_LEFT, 0);  // box is left-anchored, so is the text
     lv_label_set_long_mode(g_omega_label, LV_LABEL_LONG_DOT);  // ellipsize a long step
     lv_obj_set_width(g_omega_label, estop_clear_x - 4 - 12);  // a long step ends before the E-STOP
     // One line high: LV_LABEL_LONG_DOT honours height too, so an auto height
@@ -166,7 +166,7 @@ void omega_status_show(const char *text) {
   if (text != nullptr && std::sscanf(text, "Full Cal %d/%d", &done, &total) == 2 && total > 0) {
     if (done < 0) done = 0;
     if (done > total) done = total;
-    lv_obj_set_size(g_omega_bar, (lv_coord_t)((480 * done) / total), 4);
+    lv_obj_set_size(g_omega_bar, (lv_coord_t)((estop_clear_x * done) / total), 4);
     lv_obj_clear_flag(g_omega_bar, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_add_flag(g_omega_bar, LV_OBJ_FLAG_HIDDEN);  // no count, no fake bar

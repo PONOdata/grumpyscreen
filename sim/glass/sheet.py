@@ -38,6 +38,6 @@ for k, f in enumerate(frames):
     im = Image.frombytes("RGBA", (480, 272), raw, "raw", "BGRA", 1920, 1).convert("RGB")
     x, y = (k % cols) * w, (k // cols) * (h + 14)
     sheet.paste(im.resize((w, h)), (x, y + 14))
-    d.text((x + 2, y + 1), "%s %s" % (f[4:9], state.get(f, "")), fill=(255, 220, 120))
+    d.text((x + 2, y + 1), "%s ms %s" % (f[4:9], state.get(f, "")), fill=(255, 220, 120))
 sheet.save(dst)
 print(dst, len(frames), "frames")

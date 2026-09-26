@@ -243,7 +243,7 @@ void InitPanel::probe_reply(json &j, unsigned epoch, unsigned seq) {
       if (!answered) {
         // Moonraker is up and its Klippy host is not (restarting, or not yet started).
         pono::boot_show_loading(&boot_);
-        pono::boot_set_progress(&boot_, 8, grace ? "Restarting firmware..." : "Waiting for Klipper to start...");
+        pono::boot_set_progress(&boot_, 12, grace ? "Restarting firmware..." : "Waiting for Klipper to start...");
       } else if (state == "startup") {
         pono::boot_show_loading(&boot_);
         pono::boot_set_progress(&boot_, 16, "Klipper is starting...");
@@ -252,14 +252,20 @@ void InitPanel::probe_reply(json &j, unsigned epoch, unsigned seq) {
         // Either stopped state still answers here until it does, and showing
         // the fault again would invite a second tap on a restart in progress.
         pono::boot_show_loading(&boot_);
-        pono::boot_set_progress(&boot_, 8, "Restarting firmware...");
+        pono::boot_set_progress(&boot_, 12, "Restarting firmware...");
       } else if (state == "shutdown") {
         pono::boot_show_fault(&boot_, "Klipper stopped", klipper_reason(message).c_str());
       } else if (state == "error") {
         pono::boot_show_fault(&boot_, "Klipper can't start", klipper_reason(message).c_str());
       } else {
+        // A state this build does not know, or a reply with no state at all.
+        // Name it on the cover and in the log rather than waiting on nothing.
+        LOG_INFO("unexpected klipper state '{}'", state);
+        const std::string wait = state.empty()
+            ? std::string("Waiting for Klipper to start...")
+            : ("Klipper reports " + state + ". Waiting...");
         pono::boot_show_loading(&boot_);
-        pono::boot_set_progress(&boot_, 8, "Waiting for Klipper...");
+        pono::boot_set_progress(&boot_, 8, wait.c_str());
       }
     }
   }

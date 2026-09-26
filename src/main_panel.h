@@ -118,6 +118,8 @@ class MainPanel : public NotifyConsumer {
   lv_obj_t *tune_pill(int i);
   void tune_request(int i, const std::string &txt);   // show a sent value as pending, arm the settle timer
   static void _tune_settle(lv_timer_t *t);
+  // Not a motion: 1 when Z is in toolhead.homed_axes, else 0, the value
+  // SET_GCODE_OFFSET's MOVE= takes, so an unhomed Z changes the offset only.
   int z_move() const { return move_homed_.find('z') != std::string::npos ? 1 : 0; }
   static void _file_row_cb(lv_event_t *e);
   static void _tabview_event_cb(lv_event_t *e);

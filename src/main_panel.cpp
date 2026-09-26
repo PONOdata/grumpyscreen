@@ -1453,6 +1453,7 @@ void MainPanel::_tune_settle(lv_timer_t *t) {
     if (s->tune_ask_[i].empty()) continue;
     s->tune_ask_[i].clear();
     if (!s->tune_txt_[i].empty()) pono::pill_set(s->tune_pill(i), s->tune_txt_[i].c_str());
+    else                          pono::pill_set(s->tune_pill(i), "--");  // nothing to hold: drop the dim, say so
     s->tune_reset_.gave_up(i, s->tune_txt_[i]);
   }
   s->tune_reset_refresh();

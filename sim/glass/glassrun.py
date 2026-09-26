@@ -12,6 +12,7 @@ usage: glassrun.py NAME SECONDS [ACTION] [tap:X,Y@T[~H] ...]
   tap:X,Y@T[~H]     touch screen X,Y at T seconds after the action and hold it
                     H seconds (default 0.12). Each tap runs on its own thread,
                     so frames keep coming while it is held.
+                    Taps must not overlap: they all use MT slot 0.
 
 Frames land in /tmp/glass/NAME as zlib'd BGRA, 480x272, about every 0.2 s,
 plus index.txt: one line per frame (file name, then Klipper's state or the
@@ -33,13 +34,24 @@ MOONRAKER = "http://127.0.0.1"  # Moonraker on this box listens on port 80
 FB_BYTES = 480 * 272 * 4
 
 name, secs = sys.argv[1], float(sys.argv[2])
-action = sys.argv[3] if len(sys.argv) > 3 else "none"
+rest = [a for a in sys.argv[3:] if not a.startswith("tap:")]
+action = rest[0] if rest else "none"
+if len(rest) > 1 or action not in ("start", "krestart", "estop", "none"):
+    sys.exit(
+        "glassrun.py: bad ACTION %r. Use start, krestart, estop or none.\n%s" % (action, __doc__)
+    )
 taps = []
-for a in sys.argv[4:]:
+for a in (a for a in sys.argv[3:] if a.startswith("tap:")):
     xy, t = a[4:].split("@")
     t, _, hold = t.partition("~")
     x, y = xy.split(",")
     taps.append([float(t), int(x), int(y), False, float(hold or 0.12)])
+# One contact only: every tap drives MT slot 0, so overlapping windows would
+# stomp each other's down/up events and read as a single bogus touch.
+for a, b in zip(sorted(taps), sorted(taps)[1:]):
+    if b[0] < a[0] + a[4]:
+        sys.exit("taps %d,%d@%g~%g and %d,%d@%g overlap; they share MT slot 0. Space them out."
+                 % (a[1], a[2], a[0], a[4], b[1], b[2], b[0]))
 
 out = "/tmp/glass/" + name
 os.makedirs(out, exist_ok=True)
@@ -92,7 +104,9 @@ if action == "start":
     subprocess.call(["/etc/init.d/grumpyscreen", "stop"])
     time.sleep(0.5)
     # Fixed argv, BIN is the operator's own test binary.
-    subprocess.call(["start-stop-daemon", "-S", "-b", "-m", "-p", PID, "-x", BIN])
+    if subprocess.call(["start-stop-daemon", "-S", "-b", "-m", "-p", PID, "-x", BIN]) != 0:
+        sys.exit("could not start %s. Upload the test binary first, then rerun. "
+                 "Put the stock UI back with /etc/init.d/grumpyscreen restart" % BIN)
 elif action == "krestart":
     print("restart", post("/printer/restart"))
 elif action == "estop":
@@ -110,6 +124,8 @@ while time.time() - t0 < secs:
             lines.append("TAP %d,%d at %d ms hold %d ms" % (tp[1], tp[2], int(now * 1000), int(tp[4] * 1000)))
     with open("/dev/fb0", "rb") as fb:
         raw = fb.read(FB_BYTES)
+    if len(raw) != FB_BYTES:
+        lines.append("SHORT READ %d of %d bytes" % (len(raw), FB_BYTES))
     ms = int((time.time() - t0) * 1000)
     fn = "%03d_%05d.z" % (i, ms)
     with open(os.path.join(out, fn), "wb") as o:
@@ -117,6 +133,17 @@ while time.time() - t0 < secs:
     lines.append("%s %s" % (fn, kstate()))
     i += 1
     time.sleep(0.2)
+missed = ["%d,%d@%g" % (tp[1], tp[2], tp[0]) for tp in taps if not tp[3]]
+if missed:
+    # A tap at or past SECONDS never fires: say so instead of passing quietly.
+    msg = "MISSED taps %s: the %g s capture ended first. Raise SECONDS and rerun." % (
+        ", ".join(missed),
+        secs,
+    )
+    lines.append(msg)
+    print(msg)
 with open(os.path.join(out, "index.txt"), "w") as f:
     f.write("\n".join(lines) + "\n")
 print("frames", i, "final", kstate())
+if action == "start":
+    print("stock UI is still stopped. Restore it with /etc/init.d/grumpyscreen restart")
