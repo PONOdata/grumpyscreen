@@ -137,7 +137,7 @@ lv_obj_t *build_home(lv_obj_t *parent, const HomeModel &m, HomeHandles *out = nu
 // Persistent full-kill E-STOP. Build on lv_layer_top() so it rides above the
 // cockpit and every sub-screen and survives rebuild_home(). Returns the button;
 // the app wires the tap to a confirm -> printer.emergency_stop.
-lv_obj_t *build_estop(lv_obj_t *parent);
+lv_obj_t *build_estop(lv_obj_t *parent);  // placed by the estop_* tokens in pono_theme.h
 
 // Start/stop the small "alive" pulse on the PRINTING pill's dot. Call only on
 // the idle<->printing transition; a per-frame restart would stutter the beat.

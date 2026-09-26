@@ -134,8 +134,10 @@ void omega_status_show(const char *text) {
   if (g_omega == nullptr) {
     g_omega = lv_obj_create(lv_layer_top());
     lv_obj_remove_style_all(g_omega);
-    lv_obj_set_size(g_omega, LV_PCT(100), 30);
-    lv_obj_set_pos(g_omega, 0, 0);  // top strip over the wordmark row
+    // The whole header row, so the E-STOP sits inside the strip instead of
+    // hanging off its bottom edge.
+    lv_obj_set_size(g_omega, LV_PCT(100), estop_clear_y);
+    lv_obj_set_pos(g_omega, 0, 0);
     lv_obj_set_style_bg_color(g_omega, color_state_warning, 0);  // OMEGA amber
     lv_obj_set_style_bg_opa(g_omega, LV_OPA_COVER, 0);
     lv_obj_clear_flag(g_omega, LV_OBJ_FLAG_SCROLLABLE);
@@ -144,13 +146,17 @@ void omega_status_show(const char *text) {
     lv_obj_set_style_text_font(g_omega_label, font_body, 0);
     lv_obj_set_style_text_align(g_omega_label, LV_TEXT_ALIGN_CENTER, 0);
     lv_label_set_long_mode(g_omega_label, LV_LABEL_LONG_DOT);  // ellipsize a long step
-    lv_obj_set_width(g_omega_label, 456);
-    lv_obj_align(g_omega_label, LV_ALIGN_CENTER, 0, -2);  // clear the bar strip below
+    lv_obj_set_width(g_omega_label, estop_clear_x - 4 - 12);  // a long step ends before the E-STOP
+    // One line high: LV_LABEL_LONG_DOT honours height too, so an auto height
+    // wraps a long step onto a second line instead of ellipsizing it.
+    lv_obj_set_height(g_omega_label, lv_font_get_line_height(font_body));
+    lv_obj_align(g_omega_label, LV_ALIGN_LEFT_MID, 12, -2);  // clear the bar strip below
     g_omega_bar = lv_obj_create(g_omega);
     lv_obj_remove_style_all(g_omega_bar);
+    lv_obj_clear_flag(g_omega_bar, LV_OBJ_FLAG_CLICKABLE);  // a readout, not a control
     lv_obj_set_style_bg_color(g_omega_bar, color_surface_base, 0);  // dark on amber, like the text
     lv_obj_set_style_bg_opa(g_omega_bar, LV_OPA_COVER, 0);
-    lv_obj_set_pos(g_omega_bar, 0, 26);
+    lv_obj_set_pos(g_omega_bar, 0, estop_clear_y - 4);
     lv_obj_set_size(g_omega_bar, 0, 4);
     lv_obj_add_flag(g_omega_bar, LV_OBJ_FLAG_HIDDEN);
   }
