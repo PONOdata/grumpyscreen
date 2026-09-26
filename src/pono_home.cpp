@@ -627,6 +627,16 @@ void build_settings(lv_obj_t *parent, SettingsHandles *h) {
   lv_obj_t *back = screen_header(parent, "EXPERT TUNE");
   if (h) h->back = back;
 
+  // Back to print values. It lives in the header, clear of the scrolling list,
+  // so appearing mid-tune never slides a control out from under a finger. The
+  // app shows it only while something is off the job's values; the sim leaves
+  // it up so the render shows it.
+  {
+    lv_obj_t *rs = panel(parent, 298, 10, 170, 28, opa_border_medium);
+    lv_obj_center(tag(rs, "BACK TO PRINT VALUES", color_accent_secondary, 0, 0));
+    if (h) { lv_obj_add_flag(rs, LV_OBJ_FLAG_HIDDEN); h->reset = rs; }
+  }
+
   lv_obj_t *list = lv_obj_create(parent);
   lv_obj_remove_style_all(list);
   lv_obj_set_pos(list, 12, 54);
@@ -674,8 +684,12 @@ void build_settings(lv_obj_t *parent, SettingsHandles *h) {
   { lv_obj_t *p = value_pill(setting_row(list, "Flow factor"), "100%"); if (h) h->flow = p; }
   { lv_obj_t *c[3]; chip_row(list, "95%", "100%", "105%", c); if (h) { h->flow_p[0] = c[0]; h->flow_p[1] = c[1]; h->flow_p[2] = c[2]; } }
 
-  // Z-offset (live babystep via SET_GCODE_OFFSET)
+  // Z-offset (live babystep via SET_GCODE_OFFSET), and the size of one step.
+  // These chips pick the step and move nothing, so the chosen one stays lit,
+  // unlike the preset chips above, which fire and go dark. 0.010 is the default.
   stepper("Z-offset", "0.000", &o->zoff_minus, &o->zoff, &o->zoff_plus);
+  { lv_obj_t *c[3]; chip_row(list, "Step 0.005", "Step 0.010", "Step 0.025", c); seg_highlight(c, 3, 1);
+    if (h) { h->zstep[0] = c[0]; h->zstep[1] = c[1]; h->zstep[2] = c[2]; } }
 
   // Pressure advance (SET_PRESSURE_ADVANCE)
   { lv_obj_t *p = value_pill(setting_row(list, "Pressure advance"), "0.040"); if (h) h->pa = p; }
