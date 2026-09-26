@@ -114,6 +114,7 @@ class MainPanel : public NotifyConsumer {
   static void _sub_tap(lv_event_t *e);    // sub-screen button -> gcode action
   static void _callog_stop(lv_event_t *e);  // Make Pono STOP -> CANCEL_PRINT (frictionless exit)
   static void _fan_slider_cb(lv_event_t *e);
+  void tune_job(json &j, const char *root, bool full);  // tell tune_reset_ which job is running
   void read_tune(json &j, const char *root);          // Expert Tune readback from a status (init) or delta (consume)
   lv_obj_t *tune_pill(int i);
   void tune_request(int i, const std::string &txt);   // show a sent value as pending, arm the settle timer

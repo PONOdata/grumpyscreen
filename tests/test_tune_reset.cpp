@@ -6,8 +6,9 @@
 // own values (the job moved fan or PA itself), or hiding one that is owed. The
 // cases below are written the way main_panel drives the struct: request() on a
 // tap, settled() on a readback with nothing pending, gave_up() when the settle
-// timer expires, new_job() on a fresh print.
+// timer expires, new_job() on a fresh print, job() on every print_stats read.
 
+#include <cmath>
 #include <iostream>
 #include <string>
 #include "tune_reset.h"
@@ -102,6 +103,99 @@ int main() {
       m.v[TuneReset::ZOFF] = "0.010"; r.settled(TuneReset::ZOFF, "0.010");
       check(r.off(m.v) == 0, "a Z babystep is never offered for reset");
       check(r.base[TuneReset::ZOFF].empty(), "Z takes no baseline"); }
+
+    // job(): the file plus the steady-clock second the print started. These
+    // model the updates main_panel feeds it, init and delta alike.
+    const double NaN = std::nan("");
+    auto tuned_pa = [](TuneReset &r, Machine &m) {  // PA 0.040 -> 0.060 on screen, confirmed
+        r.request(TuneReset::PA, m.v[TuneReset::PA], "0.060");
+        m.v[TuneReset::PA] = "0.060"; r.settled(TuneReset::PA, "0.060");
+    };
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      // The socket drops, a.gcode finishes, the same file prints again, and the
+      // new run sets PA 0.060 itself. The reconnect's full status says printing,
+      // so the printing edge never fires; the readback matches the last request.
+      r.settled(TuneReset::PA, "0.060");
+      check(off(r, m, TuneReset::PA), "precondition: the settled readback alone keeps the old baseline");
+      check(r.job(true, "a.gcode", 1000.0 + 3600.0), "a reconnect into a new run of the same file is a new job");
+      check(!off(r, m, TuneReset::PA), "and the last run's PA baseline is not offered on it");
+      check(r.base[TuneReset::PA].empty() && r.mine[TuneReset::PA].empty(), "both halves of the baseline go"); }
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      check(r.job(true, "b.gcode", 1000.0), "another file is another job, even at the same start");
+      check(!off(r, m, TuneReset::PA), "so its PA is not offered either"); }
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      check(!r.job(true, "a.gcode", 1000.0 + 0.8), "a later read of the same job, 0.8 s of jitter, keeps it");
+      check(!r.job(true, "a.gcode", 1000.0), "jitter the other way keeps it too");
+      check(!r.job(true, "a.gcode", 1000.0 + TuneReset::JOB_SLACK), "jitter at the slack still keeps it");
+      check(off(r, m, TuneReset::PA), "and the chip still owes the PA reset"); }
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      check(r.job(true, "a.gcode", 1000.0 + TuneReset::JOB_SLACK + 0.5), "a start past the slack is a new job");
+      check(!off(r, m, TuneReset::PA), "and drops the baseline"); }
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      check(r.job(true, "a.gcode", 1000.0 - 600.0), "a start that moved back is not this job either"); }
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      bool kept = true;
+      for (int k = 1; k <= 30; k++) kept = !r.job(true, "a.gcode", 1000.0 + k) && kept;  // 1 s of slew per read
+      check(kept && off(r, m, TuneReset::PA), "slow clock slew across many reads never ends the job"); }
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      check(!r.job(true, "a.gcode", 1000.0), "a pause is the same job (main_panel passes running for paused)");
+      check(r.job(false, "a.gcode", 1000.0), "the job ending drops its baselines");
+      check(!off(r, m, TuneReset::PA), "so a finished print offers no PA reset"); }
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      check(r.job(true, "a.gcode", NaN), "a running job with no start read cannot be matched, so it drops");
+      check(!off(r, m, TuneReset::PA), "the baseline goes with it"); }
+
+    { TuneReset r; Machine m;
+      tuned_pa(r, m);
+      check(r.job(true, "a.gcode", 1000.0), "a first sighting cannot vouch for a baseline taken before it");
+      check(!off(r, m, TuneReset::PA), "so it drops"); }
+
+    { TuneReset r; Machine m;
+      r.job(false, "a.gcode", 1000.0);             // a read that was not a running job
+      tuned_pa(r, m);
+      check(r.job(true, "a.gcode", 1000.0), "a read that was not running never vouches for the next one"); }
+
+    { TuneReset r; Machine m;
+      r.job(false, "", 0.0);                       // boot while idle
+      r.job(true, "a.gcode", 1000.0);              // the print starts
+      tuned_pa(r, m);
+      check(!r.job(true, "a.gcode", 1001.0), "a job first seen before the tap keeps the tap's baseline");
+      check(off(r, m, TuneReset::PA), "and the chip offers it"); }
+
+    { TuneReset r; Machine m;
+      r.job(true, "a.gcode", 1000.0);
+      tuned_pa(r, m);
+      r.job(true, "a.gcode", 5000.0);              // reconnect into a new run
+      m.v[TuneReset::PA] = "0.030";
+      r.request(TuneReset::PA, "0.030", "0.050");
+      check(r.base[TuneReset::PA] == "0.030", "the new job snapshots its own PA");
+      check(!r.job(true, "a.gcode", 5000.5), "and its next read is the same job");
+      m.v[TuneReset::PA] = "0.050"; r.settled(TuneReset::PA, "0.050");
+      check(off(r, m, TuneReset::PA), "so the new job's reset is offered"); }
 
     std::cout << (failures ? "FAILED " : "ok ") << failures << " failure(s)\n";
     return failures ? 1 : 0;

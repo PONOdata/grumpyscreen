@@ -12,6 +12,7 @@
 #include <cstdio>        // popen: version check against the firmware host
 #include <cstdlib>       // system: run update-pono-print from the Install chip
 #include <thread>        // network work off the LVGL thread (labels updated under lv_lock)
+#include <chrono>        // steady clock: when the running job started (tune_job)
 
 LV_IMG_DECLARE(filament_img);
 LV_IMG_DECLARE(light_img);
@@ -131,6 +132,7 @@ void MainPanel::init(json &j) {
     }
   }
   { auto bm = j[json::json_pointer("/result/status/bed_mesh")]; if (!bm.is_null()) render_bed_mesh(bm); }  // initial heatmap
+  tune_job(j, "/result/status", true);  // which job, before its readbacks are judged
   read_tune(j, "/result/status");  // Expert Tune pills start from the machine, not the build defaults
 
   // Seed the Pono cockpit + Move screen from the initial full state. consume()
@@ -264,6 +266,7 @@ void MainPanel::consume(json &j) {
     }
   }
 
+  tune_job(j, "/params/0", false);
   read_tune(j, "/params/0");
 
   json pstat_state = j.value("/params/0/print_stats/state"_json_pointer, json());  // value(): read without INSERTing a null node on the hot path (non-const operator[] mutates the delta every time this key is absent, i.e. most deltas)
@@ -1364,6 +1367,26 @@ void MainPanel::_sub_tap(lv_event_t *e) {
 lv_obj_t *MainPanel::tune_pill(int i) {
   lv_obj_t *p[TUNE_N] = {settings_h_.speed, settings_h_.flow, settings_h_.zoff, settings_h_.pa, settings_h_.fan};
   return (i >= 0 && i < TUNE_N) ? p[i] : nullptr;
+}
+
+// Which job the reset chip's baselines belong to (tune_reset.h job()). A full
+// status (init, so a reconnect too) always says; a delta says only when it
+// carries total_duration, which Klipper moves on every update while a job is
+// printing or paused. Paused counts as running: a resume is the same job.
+// Runs ahead of read_tune, so its readbacks are judged against this job.
+// Caller holds lv_lock.
+void MainPanel::tune_job(json &j, const char *root, bool full) {
+  auto V = [&](const char *p) { return j.value(json::json_pointer(fmt::format("{}/print_stats/{}", root, p)), json()); };
+  json total = V("total_duration");
+  if (!full && total.is_null()) return;
+  json state = V("state"), file = V("filename");
+  std::string st = state.is_string() ? state.template get<std::string>() : std::string();
+  bool running = state.is_string() ? (st == "printing" || st == "paused")
+                                   : (!full && (home_printing_ || home_paused_));
+  std::string f = file.is_string() ? file.template get<std::string>() : (full ? std::string() : home_job_);
+  double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+  double started = total.is_number() ? now - total.template get<double>() : std::nan("");
+  if (tune_reset_.job(running, f, started)) tune_reset_refresh();
 }
 
 // Expert Tune readback from a full status (init, root /result/status) or a
