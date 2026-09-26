@@ -50,7 +50,10 @@ void prompt_layout_build(lv_obj_t *parent, PromptLayout *l) {
   lv_obj_set_style_border_width(l->cont, 1, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_color(l->cont, pono::color_text_primary, LV_PART_MAIN | LV_STATE_DEFAULT);
   lv_obj_set_style_border_opa(l->cont, pono::opa_border_medium, LV_PART_MAIN | LV_STATE_DEFAULT);
-  lv_obj_set_style_max_height(l->cont, lv_pct(92), 0);
+  // Held below the header row, where the E-STOP rides on every screen, with the
+  // 12px outer margin under it.
+  const lv_coord_t band_h = lv_obj_get_height(parent) - pono::estop_clear_y - 12;
+  lv_obj_set_style_max_height(l->cont, band_h, 0);
   lv_obj_set_style_max_width(l->cont, lv_pct(94), 0);
   lv_obj_set_style_min_width(l->cont, lv_pct(60), 0);
   lv_obj_set_width(l->cont, lv_pct(90));
@@ -58,7 +61,7 @@ void prompt_layout_build(lv_obj_t *parent, PromptLayout *l) {
   lv_obj_set_flex_flow(l->cont, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(l->cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_clear_flag(l->cont, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_center(l->cont);
+  lv_obj_align(l->cont, LV_ALIGN_CENTER, 0, (pono::estop_clear_y - 12) / 2);  // centred in that band
 
   // The title is one line, ellipsized. LV_LABEL_LONG_DOT honours HEIGHT as well
   // as width, so leaving the height auto makes an overlong title wrap and spill

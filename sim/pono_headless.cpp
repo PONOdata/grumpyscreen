@@ -88,6 +88,67 @@ static int write_bmp(const char *path) {
   return 0;
 }
 
+// The app builds the E-STOP on lv_layer_top() over every screen, so a render
+// without it shows a header the glass never does. After drawing it, name each
+// label or control that sits under its hit area. A backdrop that holds the
+// whole hit area is fine; anything that overlaps it only in part, or lies
+// inside it, is covered or out-tapped on the device.
+// Where a label's glyphs land, not its box: a short title in a full-width
+// label leaves the box's right end empty.
+static lv_area_t label_ink(lv_obj_t *l) {
+  lv_area_t c;
+  lv_obj_get_content_coords(l, &c);
+  const char *txt = lv_label_get_text(l);
+  const lv_coord_t cw = lv_area_get_width(&c);
+  lv_point_t sz;
+  lv_txt_get_size(&sz, txt, lv_obj_get_style_text_font(l, LV_PART_MAIN),
+                  lv_obj_get_style_text_letter_space(l, LV_PART_MAIN),
+                  lv_obj_get_style_text_line_space(l, LV_PART_MAIN), cw, LV_TEXT_FLAG_NONE);
+  const lv_coord_t w = LV_MIN(sz.x, cw);
+  const lv_text_align_t al = lv_obj_calculate_style_text_align(l, LV_PART_MAIN, txt);
+  if (al == LV_TEXT_ALIGN_CENTER) c.x1 += (cw - w) / 2;
+  else if (al == LV_TEXT_ALIGN_RIGHT) c.x1 = c.x2 - w + 1;
+  c.x2 = c.x1 + w - 1;
+  c.y2 = LV_MIN(c.y2, c.y1 + sz.y - 1);
+  return c;
+}
+
+// Raw coords clipped by each parent: lv_obj_area_is_visible pads every area by
+// 5px for invalidation, which would flag a hairline that clears the lamp. A
+// label is judged by its glyphs, a control by its whole touch area, and a rule
+// line (2px or thinner) not at all: it is drawn, never read or tapped.
+static int g_lamp_checked = 0;
+static int audit_under_lamp(lv_obj_t *o, lv_obj_t *lamp, const lv_area_t *hit,
+                            const lv_area_t *clip) {
+  int bad = 0;
+  for (uint32_t i = 0; i < lv_obj_get_child_cnt(o); i++) {
+    lv_obj_t *c = lv_obj_get_child(o, i);
+    if (c == lamp || lv_obj_has_flag(c, LV_OBJ_FLAG_HIDDEN)) continue;
+    lv_area_t a;
+    lv_obj_get_coords(c, &a);
+    const bool shown = _lv_area_intersect(&a, &a, clip);
+    const bool spills = lv_obj_has_flag(c, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+    if (shown || spills) bad += audit_under_lamp(c, lamp, hit, spills ? clip : &a);
+    if (!shown) continue;
+    const bool label = lv_obj_check_type(c, &lv_label_class);
+    if (!label && !lv_obj_has_flag(c, LV_OBJ_FLAG_CLICKABLE)) continue;
+    if (lv_area_get_width(&a) <= 2 || lv_area_get_height(&a) <= 2) continue;
+    g_lamp_checked++;
+    if (_lv_area_is_in(hit, &a, 0)) continue;  // a backdrop the lamp sits on
+    lv_area_t reach;
+    if (label) reach = label_ink(c);
+    else lv_obj_get_click_area(c, &reach);
+    lv_area_t x;
+    if (!_lv_area_intersect(&reach, &reach, clip) || !_lv_area_intersect(&x, &reach, hit)) continue;
+    a = reach;
+    bad++;
+    fprintf(stderr, "UNDER E-STOP: %s at %d,%d-%d,%d%s%s\n", label ? "label" : "control",
+            (int)a.x1, (int)a.y1, (int)a.x2, (int)a.y2,
+            label ? " text=" : "", label ? lv_label_get_text(c) : "");
+  }
+  return bad;
+}
+
 int main(int argc, char **argv) {
   const char *out = argc > 1 ? argv[1] : "out.bmp";
   int advance_ms = argc > 2 ? atoi(argv[2]) : 700;
@@ -259,12 +320,15 @@ int main(int argc, char **argv) {
     lv_obj_set_style_text_font(sub, pono::font_caption, 0);
     lv_label_set_text(sub, "248 / 250");
     lv_obj_align(sub, LV_ALIGN_CENTER, 0, 72);
-  } else if (screen == "omega") {
-    // OMEGA print banner demo: the thin amber status strip carrying the live
+  } else if (screen == "omega" || screen == "omega_long") {
+    // OMEGA print banner demo: the amber status strip carrying the live
     // step + running grade over a running print (the Phase B/C case the cal
-    // overlay can't cover because it is gated to !printing).
+    // overlay can't cover because it is gated to !printing). omega_long runs a
+    // step long enough to ellipsize, so the text's end is what gets audited.
     pono::build_home(lv_scr_act(), pono::demo_home_model());
-    pono::omega_status_show("OMEGA 8/29: Bridging -> OK (8 OK)");
+    pono::omega_status_show(screen == "omega_long"
+      ? "OMEGA 21/29: Overhang 60 degrees, second pass -> OK (20 OK, 1 retry)"
+      : "OMEGA 8/29: Bridging -> OK (8 OK)");
   } else if (screen == "busy") {
     // Working overlay demo: scrim + comet spinner + status over the idle home.
     pono::build_home(lv_scr_act(), pono::demo_home_idle_model());
@@ -348,6 +412,9 @@ int main(int argc, char **argv) {
     pono::build_home(lv_scr_act(), pono::demo_home_model());
   }
 
+  // As main_panel does: the lamp goes on the top layer after the screen.
+  lv_obj_t *lamp = pono::build_estop(lv_layer_top());
+
   // advance time so animations settle (ocean drift, glow pulse)
   for (int t = 0; t < advance_ms; t += 16) {
     g_tick_ms += 16;
@@ -366,5 +433,15 @@ int main(int argc, char **argv) {
     return 1;
   }
   fprintf(stderr, "wrote %s (%s, %dms)\n", out, screen.c_str(), advance_ms);
-  return 0;
+
+  lv_area_t hit;
+  lv_obj_get_coords(lamp, &hit);
+  lv_area_increase(&hit, pono::estop_hit, pono::estop_hit);
+  const lv_area_t panel_area = {0, 0, PW - 1, PH - 1};
+  const int under = audit_under_lamp(lv_scr_act(), lamp, &hit, &panel_area) +
+                    audit_under_lamp(lv_layer_top(), lamp, &hit, &panel_area);
+  fprintf(stderr, "E-STOP audit: %d labels and controls checked, %d under the lamp (hit %d,%d-%d,%d)\n",
+          g_lamp_checked, under, (int)hit.x1, (int)hit.y1, (int)hit.x2, (int)hit.y2);
+  if (g_lamp_checked == 0) return 4;  // an audit that saw nothing proves nothing
+  return under ? 3 : 0;
 }

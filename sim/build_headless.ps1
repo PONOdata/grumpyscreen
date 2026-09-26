@@ -89,10 +89,14 @@ Write-Host "      built $exe"
 $bmp = Join-Path $sim "$Screen.bmp"
 $png = Join-Path $sim "$Screen.png"
 & $exe $bmp $AdvanceMs $Screen
-if ($LASTEXITCODE -ne 0) { throw "render failed ($LASTEXITCODE)" }
+$rc = $LASTEXITCODE
+# Exit 3 means the render is fine but something sits under the E-STOP; keep
+# the picture so the overlap can be seen, then fail.
+if ($rc -ne 0 -and $rc -ne 3) { throw "render failed ($rc)" }
 
 Add-Type -AssemblyName System.Drawing
 $img = [System.Drawing.Bitmap]::FromFile($bmp)
 $img.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
 $img.Dispose()
+if ($rc -eq 3) { throw "something sits under the E-STOP, see $png" }
 Write-Host "RENDER OK -> $png"

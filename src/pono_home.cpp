@@ -282,6 +282,8 @@ lv_obj_t *build_home(lv_obj_t *parent, const HomeModel &m, HomeHandles *out) {
   lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
 
   // ===== TOP BAR: the flag mark + loaded material + one state chip =====
+  // The state chip ends short of the E-STOP's reach, which owns the right end.
+  const int PILL_W = 90, PILL_X = estop_clear_x - 4 - PILL_W;
   // The Hawaii flag is the identity mark (boot screen set the precedent);
   // 192x96 asset zoomed to 48x24 around a top-left pivot.
   {
@@ -305,7 +307,7 @@ lv_obj_t *build_home(lv_obj_t *parent, const HomeModel &m, HomeHandles *out) {
   lv_obj_t *mat = tag(parent, m.material ? m.material : "", color_text_tertiary, 0, 0);
   {
     const int mat_x = CX0 + 54;                   // clear the 48px flag plus a gap
-    const int mat_w = (CX1 - 160) - mat_x - 8;    // stop short of the chip's left edge
+    const int mat_w = PILL_X - mat_x - 8;         // stop short of the chip's left edge
     // Height is pinned to a single line on purpose. LV_LABEL_LONG_DOT honours
     // the object's height as well as its width, so with an auto height it wraps
     // to a second line and spills into the content below instead of ellipsizing.
@@ -318,7 +320,7 @@ lv_obj_t *build_home(lv_obj_t *parent, const HomeModel &m, HomeHandles *out) {
   {
     lv_color_t sc = m.paused ? color_state_warning
                   : pr       ? color_accent_primary : color_accent_secondary;
-    lv_obj_t *pill = card(parent, CX1 - 160, TOP_Y, 90, TOP_H - 2, color_surface_raised);  // narrowed to clear the top-layer E-STOP at the right margin
+    lv_obj_t *pill = card(parent, PILL_X, TOP_Y, PILL_W, TOP_H - 2, color_surface_raised);
     hairline_c(pill, sc, opa_border_strong);
     lv_obj_t *dot = card(pill, 0, 0, 8, 8, sc, 4);
     lv_obj_align(dot, LV_ALIGN_LEFT_MID, 11, 0);
@@ -477,12 +479,11 @@ lv_obj_t *build_home(lv_obj_t *parent, const HomeModel &m, HomeHandles *out) {
 // fill, dark label, machined corner - the same treatment as the Shutdown card.
 // The app wires the tap to a confirm -> printer.emergency_stop (full halt).
 lv_obj_t *build_estop(lv_obj_t *parent) {
-  const int W = 64, H = 26, X = 480 - 12 - W, Y = 10;  // top-right, on the 12px outer margin
-  lv_obj_t *b = card(parent, X, Y, W, H, color_state_error);
+  lv_obj_t *b = card(parent, estop_x, estop_y, estop_w, estop_h, color_state_error);
   lv_obj_t *l = lbl(b, "E-STOP", font_caption, color_surface_base, 0, 0);
   lv_obj_center(l);
   lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_ext_click_area(b, 8);  // generous hit target on the resistive panel
+  lv_obj_set_ext_click_area(b, estop_hit);  // generous hit target on the resistive panel
   return b;
 }
 
@@ -630,9 +631,11 @@ void build_settings(lv_obj_t *parent, SettingsHandles *h) {
   // Back to print values. It lives in the header, clear of the scrolling list,
   // so appearing mid-tune never slides a control out from under a finger. The
   // app shows it only while something is off the job's values; the sim leaves
-  // it up so the render shows it.
+  // it up so the render shows it. It ends left of the E-STOP's hit area, which
+  // owns the header's right end on every screen.
   {
-    lv_obj_t *rs = panel(parent, 298, 10, 170, 28, opa_border_medium);
+    const int RW = 160, RX = estop_clear_x - 4 - RW;
+    lv_obj_t *rs = panel(parent, RX, 10, RW, 28, opa_border_medium);
     lv_obj_center(tag(rs, "BACK TO PRINT VALUES", color_accent_secondary, 0, 0));
     if (h) { lv_obj_add_flag(rs, LV_OBJ_FLAG_HIDDEN); h->reset = rs; }
   }
@@ -786,9 +789,11 @@ void build_filament(lv_obj_t *parent, FilamentHandles *h) {
 
   // Live nozzle temp rides the header line (right side) - frees a full row so
   // material select, load length, and the action pairs all keep 44pt targets.
+  // It ends short of the E-STOP's reach: the readout sits 14px in from this
+  // box's right edge and reaches 18px past its own, so its touch stops at 395.
   lv_obj_t *tc = lv_obj_create(parent);
   lv_obj_remove_style_all(tc);
-  lv_obj_set_pos(tc, 250, 6);
+  lv_obj_set_pos(tc, estop_clear_x - 4 - 218, 6);
   lv_obj_set_size(tc, 218, 34);
   lv_obj_clear_flag(tc, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_t *tn = tag(tc, "NOZZLE", color_text_tertiary, 0, 0);
@@ -1203,7 +1208,8 @@ void build_notice(lv_obj_t *parent, NoticeHandles *h) {
   lv_obj_add_flag(scrim, LV_OBJ_FLAG_HIDDEN | LV_OBJ_FLAG_CLICKABLE);
   lv_obj_clear_flag(scrim, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *cd = card(parent, 40, 26, 400, 220, color_surface_raised);  // centered on 480x272
+  // Below the header row, where the E-STOP cannot sit on its corner.
+  lv_obj_t *cd = card(parent, 40, estop_clear_y, 400, 216, color_surface_raised);
   hairline(cd, opa_border_medium);
   lv_obj_add_flag(cd, LV_OBJ_FLAG_HIDDEN);
 

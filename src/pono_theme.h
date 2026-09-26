@@ -81,6 +81,19 @@ constexpr lv_coord_t content_y     = topbar_height;
 constexpr lv_coord_t content_w     = frame_width - rail_width;
 constexpr lv_coord_t content_h     = frame_height - topbar_height;
 
+// ---- The E-STOP's corner ----
+// The kill switch rides lv_layer_top() over every screen, top-right on the
+// 12px outer margin, and its hit area reaches estop_hit past its edge. Nothing
+// but a backdrop may sit inside that reach: end left of estop_clear_x or start
+// at or below estop_clear_y. sim/pono_headless audits every render for it.
+constexpr lv_coord_t estop_w       = 64;
+constexpr lv_coord_t estop_h       = 26;
+constexpr lv_coord_t estop_x       = frame_width - 12 - estop_w;
+constexpr lv_coord_t estop_y       = 10;
+constexpr lv_coord_t estop_hit     = 8;
+constexpr lv_coord_t estop_clear_x = estop_x - estop_hit;            // 396
+constexpr lv_coord_t estop_clear_y = estop_y + estop_h + estop_hit;  // 44
+
 // ---- Motion duration tokens ----
 // Hovers/presses instant-to-120ms, entrances 140-240ms ease-out, instruments
 // may run continuous. High-frequency actions get zero animation.
