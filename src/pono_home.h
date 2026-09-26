@@ -226,17 +226,21 @@ void build_tune(lv_obj_t *parent, TuneHandles *h = nullptr);
 // Expert Tune: the deep LIVE printer-tuning surface (the slicer-geometry
 // settings live in the AIO Orca panel; the printer can only tune what Klipper
 // controls live). Every value pill is keypad-tappable; speed/flow/fan also
-// carry quick presets, z-offset carries babystep -/+ . The app wires each to
-// its Klipper command and reflects live status back into the pills.
+// carry quick presets, z-offset carries babystep -/+ with a choice of step
+// size. A header chip returns speed, flow, PA and fan to the print's values
+// (tune_reset.h). The app wires each to its Klipper command and reflects live
+// status back into the pills.
 struct SettingsHandles {
   lv_obj_t *back = nullptr;
   lv_obj_t *speed = nullptr, *flow = nullptr, *zoff = nullptr, *pa = nullptr, *fan = nullptr;
   lv_obj_t *speed_p[3] = {nullptr, nullptr, nullptr};   // 50 / 100 / 150 %
   lv_obj_t *flow_p[3]  = {nullptr, nullptr, nullptr};   // 95 / 100 / 105 %
   lv_obj_t *fan_p[3]   = {nullptr, nullptr, nullptr};   // Off / 50 / Full
-  lv_obj_t *zoff_minus = nullptr, *zoff_plus = nullptr; // -/+ 0.01 babystep
+  lv_obj_t *zoff_minus = nullptr, *zoff_plus = nullptr; // -/+ one babystep
+  lv_obj_t *zstep[3]   = {nullptr, nullptr, nullptr};   // babystep size 0.005 / 0.010 / 0.025 mm
   lv_obj_t *speed_minus = nullptr, *speed_plus = nullptr; // -/+ 5 % speed
   lv_obj_t *melt = nullptr;                              // live melt rate readout, mm3/s
+  lv_obj_t *reset = nullptr;                             // header chip: back to print values (hidden unless off)
 };
 void build_settings(lv_obj_t *parent, SettingsHandles *h = nullptr);
 

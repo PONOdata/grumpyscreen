@@ -16,6 +16,7 @@
 #include "sysinfo_panel.h"
 #include "spoolman_panel.h"
 #include "pono_home.h"
+#include "tune_reset.h"
 #include "lvgl/lvgl.h"
 
 #include <mutex>
@@ -194,6 +195,10 @@ class MainPanel : public NotifyConsumer {
   std::string tune_ask_[TUNE_N];   // pending request text, empty when none
   double tune_zoff_ask_ = 0.0;     // pending Z offset, the base for the next babystep
   int tune_speed_ = 100, tune_speed_ask_ = 100;  // machine and pending speed %, the base for the next step
+  pono::TuneReset tune_reset_;     // back-to-print-values baselines (tune_reset.h)
+  int rend_reset_ = -1;            // reset chip shadow: bitmask of off-profile controls, -1 unset
+  int zstep_idx_ = 1;              // babystep size, index into 0.005 / 0.010 / 0.025 mm
+  void tune_reset_refresh();       // show or hide the reset chip; caller holds lv_lock
   int rend_melt_ = INT_MIN;        // melt readout shadow, tenths of mm3/s
   lv_timer_t *tune_settle_ = nullptr;
   int fil_mat_ = 2;                // selected material segment (0 PLA / 1 PETG / 2 PA-CF)

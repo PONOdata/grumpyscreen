@@ -332,6 +332,9 @@ void MainPanel::consume(json &j) {
     bool paused   = pstat_state.is_null() ? home_paused_   : (pst == "paused");
 
     if (printing != home_printing_ || paused != home_paused_) {
+      // A new job, not a resume: its gcode owns PA and fan from here, so the
+      // last job's baselines would reset it to someone else's values.
+      if (printing && !home_printing_ && !home_paused_) { tune_reset_.new_job(); tune_reset_refresh(); }
       home_printing_ = printing;
       home_paused_   = paused;
       rebuild_home();                 // swap to the matching layout (Ready / printing / paused)
@@ -736,7 +739,8 @@ void MainPanel::create_pono_screens() {
     settings_h_.flow_p[0], settings_h_.flow_p[1], settings_h_.flow_p[2],
     settings_h_.fan_p[0], settings_h_.fan_p[1], settings_h_.fan_p[2],
     settings_h_.zoff_minus, settings_h_.zoff_plus,
-    settings_h_.speed_minus, settings_h_.speed_plus,
+    settings_h_.zstep[0], settings_h_.zstep[1], settings_h_.zstep[2],
+    settings_h_.speed_minus, settings_h_.speed_plus, settings_h_.reset,
   };
   for (lv_obj_t *t : taps) if (t) lv_obj_add_event_cb(t, &MainPanel::_sub_tap, LV_EVENT_CLICKED, this);
   for (int i = 0; i < 3; i++)
@@ -745,6 +749,7 @@ void MainPanel::create_pono_screens() {
   // Load-length slider: VALUE_CHANGED so the mm readout tracks the finger live.
   if (fil_h_.len_slider)  lv_obj_add_event_cb(fil_h_.len_slider, &MainPanel::_fan_slider_cb, LV_EVENT_VALUE_CHANGED, this);
   pono::seg_highlight(fil_h_.preset, 3, fil_mat_);  // PA-CF preselected: this is a PA printer
+  pono::seg_highlight(settings_h_.zstep, 3, zstep_idx_);
 
   // Modal confirm dialog on the top layer (above every sub-screen).
   pono::build_confirm(lv_layer_top(), &confirm_h_);
@@ -1322,14 +1327,36 @@ void MainPanel::_sub_tap(lv_event_t *e) {
     s->tune_request(TUNE_SPEED, fmt::format("{}%", sp));
     return;
   }
+  for (int k = 0; k < 3; k++)
+    if (t == se.zstep[k]) { s->zstep_idx_ = k; pono::seg_highlight(se.zstep, 3, k); return; }
   if (t == se.zoff_minus || t == se.zoff_plus) {
-    double d = (t == se.zoff_plus) ? 0.01 : -0.01;
+    static const double steps[3] = {0.005, 0.010, 0.025};
+    double d = steps[s->zstep_idx_] * ((t == se.zoff_plus) ? 1.0 : -1.0);
     // Step from the pending value while one is in flight, so fast taps add up
-    // on the glass the way Z_ADJUST adds them up on the machine.
+    // on the glass the way Z_ADJUST adds them up on the machine. Three places,
+    // because two would round the 0.005 step to 0.01 or to nothing.
     double base = s->tune_ask_[TUNE_ZOFF].empty() ? s->tune_zoff_ : s->tune_zoff_ask_;
     s->tune_zoff_ask_ = base + d;
-    s->ws.gcode_script(fmt::format("SET_GCODE_OFFSET Z_ADJUST={:.2f} MOVE={}", d, s->z_move()));
+    s->ws.gcode_script(fmt::format("SET_GCODE_OFFSET Z_ADJUST={:.3f} MOVE={}", d, s->z_move()));
     s->tune_request(TUNE_ZOFF, fmt::format("{:.3f}", s->tune_zoff_ask_));
+    return;
+  }
+  // Back to print values: sends exactly what the chip was showing as off, each
+  // through tune_request, so every pill dims and confirms like any other tap.
+  if (t == se.reset) {
+    int m = s->rend_reset_ > 0 ? s->rend_reset_ : 0;
+    if (m & (1 << TUNE_SPEED)) { s->tune_speed_ask_ = 100; s->ws.gcode_script("M220 S100"); s->tune_request(TUNE_SPEED, "100%"); }
+    if (m & (1 << TUNE_FLOW))  { s->ws.gcode_script("M221 S100"); s->tune_request(TUNE_FLOW, "100%"); }
+    if (m & (1 << TUNE_PA)) {
+      std::string b = s->tune_reset_.base[TUNE_PA];
+      s->ws.gcode_script(fmt::format("SET_PRESSURE_ADVANCE ADVANCE={:.3f}", std::strtod(b.c_str(), nullptr)));
+      s->tune_request(TUNE_PA, b);
+    }
+    if (m & (1 << TUNE_FAN)) {
+      std::string b = s->tune_reset_.base[TUNE_FAN];
+      s->ws.gcode_script(fmt::format("M106 S{}", std::atoi(b.c_str()) * 255 / 100));
+      s->tune_request(TUNE_FAN, b);
+    }
     return;
   }
 }
@@ -1348,6 +1375,7 @@ void MainPanel::read_tune(json &j, const char *root) {
   auto got = [&](int i, const std::string &txt) {
     tune_txt_[i] = txt;
     if (tune_ask_[i].empty() || tune_ask_[i] == txt) { tune_ask_[i].clear(); pono::pill_set(tune_pill(i), txt.c_str()); }
+    if (tune_ask_[i].empty()) tune_reset_.settled(i, txt);
   };
   auto pct = [](double f) { return (int)(f * 100.0 + 0.5); };  // factors are never negative
   { auto v = V("gcode_move/speed_factor");
@@ -1386,9 +1414,28 @@ void MainPanel::read_tune(json &j, const char *root) {
         lv_obj_align(settings_h_.melt, LV_ALIGN_RIGHT_MID, -16, 0);
       }
     } }
+  tune_reset_refresh();
+}
+
+// The reset chip shows while any control is off the print's values: speed or
+// flow not 100%, PA or fan not the baseline taken before this screen changed it.
+// It follows what the machine reports, not what was sent, like the pills.
+void MainPanel::tune_reset_refresh() {
+  using R = pono::TuneReset;
+  static_assert(int(TUNE_SPEED) == int(R::SPEED) && int(TUNE_FLOW) == int(R::FLOW) &&
+                int(TUNE_ZOFF) == int(R::ZOFF) && int(TUNE_PA) == int(R::PA) &&
+                int(TUNE_FAN) == int(R::FAN) && int(TUNE_N) == int(R::N),
+                "tune_reset.h indexes the pills in TUNE_* order");
+  if (!settings_h_.reset) return;
+  int m = tune_reset_.off(tune_txt_);
+  if (m == rend_reset_) return;
+  rend_reset_ = m;
+  if (m) lv_obj_clear_flag(settings_h_.reset, LV_OBJ_FLAG_HIDDEN);
+  else   lv_obj_add_flag(settings_h_.reset, LV_OBJ_FLAG_HIDDEN);
 }
 
 void MainPanel::tune_request(int i, const std::string &txt) {
+  tune_reset_.request(i, tune_txt_[i], txt);
   tune_ask_[i] = txt;
   pono::pill_pending(tune_pill(i), txt.c_str());
   if (!tune_settle_) tune_settle_ = lv_timer_create(&MainPanel::_tune_settle, 1500, this);
@@ -1406,7 +1453,9 @@ void MainPanel::_tune_settle(lv_timer_t *t) {
     if (s->tune_ask_[i].empty()) continue;
     s->tune_ask_[i].clear();
     if (!s->tune_txt_[i].empty()) pono::pill_set(s->tune_pill(i), s->tune_txt_[i].c_str());
+    s->tune_reset_.gave_up(i, s->tune_txt_[i]);
   }
+  s->tune_reset_refresh();
 }
 
 void MainPanel::_fan_slider_cb(lv_event_t *e) {

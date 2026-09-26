@@ -183,6 +183,17 @@ int main(int argc, char **argv) {
     pono::build_tune(lv_scr_act());
   } else if (screen == "settings" || screen == "expert") {
     pono::build_settings(lv_scr_act());
+  } else if (screen == "expert_z") {
+    // The same sheet scrolled to the Z rows, which sit below the fold.
+    pono::SettingsHandles sh;
+    pono::build_settings(lv_scr_act(), &sh);
+    lv_obj_t *list = lv_obj_get_parent(lv_obj_get_parent(sh.zoff));
+    lv_obj_clear_flag(sh.reset, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_update_layout(list);
+    lv_obj_scroll_to_y(list, lv_obj_get_y(lv_obj_get_parent(sh.zstep[0])) - 60, LV_ANIM_OFF);
+    fprintf(stderr, "expert_z: zstep row y=%d, scrolled to %d, %d below\n",
+            (int)lv_obj_get_y(lv_obj_get_parent(sh.zstep[0])), (int)lv_obj_get_scroll_y(list),
+            (int)lv_obj_get_scroll_bottom(list));
   } else if (screen == "more") {
     pono::build_more(lv_scr_act());
   } else if (screen == "mesh") {
