@@ -1,6 +1,7 @@
 #include "numpad.h"
 #include "pono_theme.h"
 #include "logger.h"
+#include "pono_anim.h"  // raise_overlay: the keypad sits on lv_layer_top
 
 #include <cstring>
 #include <string>
@@ -143,8 +144,8 @@ void Numpad::foreground_reset() {
   lv_textarea_set_text(input, "");
   lv_obj_clear_flag(scrim, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(edit_cont, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(scrim);      // backdrop above the page...
-  lv_obj_move_foreground(edit_cont);  // ...card above the backdrop
+  pono::raise_overlay(scrim);      // backdrop above the page...
+  pono::raise_overlay(edit_cont);  // ...card above the backdrop, E-STOP above both
 }
 
 void Numpad::dismiss() {

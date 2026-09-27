@@ -84,6 +84,44 @@ static void busy_watchdog_cb(lv_timer_t *) {
   busy_hide();
 }
 
+// --- E-STOP over overlays --------------------------------------------------
+// Overlays on lv_layer_top() are raised on every update, and the E-STOP used to
+// come back above them only on MainPanel's 300 ms keepalive tick. In between,
+// an opaque overlay sat over the kill switch and took its taps. raise_overlay
+// closes that gap: it raises the overlay and puts the E-STOP straight back on
+// top in the same call. The keepalive stays as the net for anything else.
+//
+// The one exception is carried over unchanged from the keepalive: while the
+// confirm dialog is open, the E-STOP stays under it so the dialog can be
+// answered. The confirm card is read through a pointer to its slot, not
+// captured once, because the card is built and torn down after registration.
+namespace {
+lv_obj_t *g_guard_estop = nullptr;
+lv_obj_t *const *g_guard_confirm_slot = nullptr;
+}  // namespace
+
+void estop_guard_set(lv_obj_t *estop, lv_obj_t *const *confirm_card_slot) {
+  g_guard_estop = estop;
+  g_guard_confirm_slot = confirm_card_slot;
+}
+
+void estop_reassert() {
+  if (g_guard_estop == nullptr) return;
+  lv_obj_t *confirm = g_guard_confirm_slot ? *g_guard_confirm_slot : nullptr;
+  if (confirm != nullptr && !lv_obj_has_flag(confirm, LV_OBJ_FLAG_HIDDEN)) return;
+  lv_obj_t *top = lv_layer_top();
+  if (lv_obj_get_parent(g_guard_estop) != top) return;
+  uint32_t n = lv_obj_get_child_cnt(top);
+  if (n && lv_obj_get_child(top, n - 1) != g_guard_estop)
+    lv_obj_move_foreground(g_guard_estop);
+}
+
+void raise_overlay(lv_obj_t *obj) {
+  if (obj == nullptr) return;
+  lv_obj_move_foreground(obj);
+  estop_reassert();
+}
+
 void busy_show(const char *text) {
   if (g_busy == nullptr) {
     g_busy = lv_obj_create(lv_layer_top());
@@ -107,7 +145,7 @@ void busy_show(const char *text) {
   lv_obj_align(g_busy_label, LV_ALIGN_CENTER, 0, 50);  // re-center after (re)wrap
   lv_animimg_start(g_busy_spinner);  // re-arm (busy_hide stopped it)
   lv_obj_clear_flag(g_busy, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(g_busy);
+  raise_overlay(g_busy);
   // (Re)arm the stranded-scrim watchdog. 180s comfortably outlasts the longest
   // real blocking op here (a full-length filament load), so it only fires on a
   // genuine hang and never cuts a healthy op short.
@@ -172,7 +210,7 @@ void omega_status_show(const char *text) {
     lv_obj_add_flag(g_omega_bar, LV_OBJ_FLAG_HIDDEN);  // no count, no fake bar
   }
   lv_obj_clear_flag(g_omega, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(g_omega);
+  raise_overlay(g_omega);
 }
 
 void omega_status_hide() {
@@ -322,7 +360,7 @@ void cal_log_show(const char *now, const char *next, int done, int total,
     lv_obj_add_flag(g_callog_bar, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_clear_flag(g_callog, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_move_foreground(g_callog);
+  raise_overlay(g_callog);
 }
 
 void cal_log_hide() {
