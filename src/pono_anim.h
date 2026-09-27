@@ -91,5 +91,15 @@ void cal_log_show(const char *now, const char *next, int done, int total,
                   bool fault, lv_event_cb_t stop_cb, void *stop_ud);
 void cal_log_hide();
 
+// Raise an overlay on lv_layer_top() and, in the same call, put the E-STOP
+// back above it (unless the confirm dialog is open). Every top-layer overlay
+// raise goes through this; see pono_anim.cpp.
+void raise_overlay(lv_obj_t *obj);
+// The E-STOP rule on its own, shared with MainPanel's keepalive.
+void estop_reassert();
+// Register the E-STOP and the slot holding the confirm card it yields to.
+// Pass nullptr, nullptr to clear, as MainPanel's destructor does.
+void estop_guard_set(lv_obj_t *estop, lv_obj_t *const *confirm_card_slot);
+
 }  // namespace pono
 #endif

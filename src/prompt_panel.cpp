@@ -91,7 +91,7 @@ PromptPanel::~PromptPanel() {
 
 void PromptPanel::foreground() {
   // shrink wrap
-  lv_obj_move_foreground(prompt_cont);
+  pono::raise_overlay(prompt_cont);  // on lv_layer_top: E-STOP straight back over it
 }
 
 void PromptPanel::background() {

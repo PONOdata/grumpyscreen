@@ -92,6 +92,7 @@ MainPanel::~MainPanel() {
     lv_timer_del(stale_timer_);
     stale_timer_ = nullptr;
   }
+  pono::estop_guard_set(nullptr, nullptr);  // nothing may raise a freed E-STOP
   if (estop_keepalive_timer_ != nullptr) {
     lv_timer_del(estop_keepalive_timer_);
     estop_keepalive_timer_ = nullptr;
@@ -770,6 +771,9 @@ void MainPanel::create_pono_screens() {
   estop_btn_ = pono::build_estop(lv_layer_top());
   if (estop_btn_) {
     lv_obj_add_event_cb(estop_btn_, &MainPanel::_estop_tap, LV_EVENT_CLICKED, this);
+    // Every overlay raise now re-raises the E-STOP at once (pono::raise_overlay);
+    // the keepalive below stays as the net. The confirm is read through its slot.
+    pono::estop_guard_set(estop_btn_, &confirm_h_.card);
     // Keep the kill switch reachable. The busy/cal/numpad scrims are full-screen
     // children of lv_layer_top() that move_foreground over the E-STOP, leaving it
     // untappable during exactly the motion (homing, filament load, cal, value
@@ -800,11 +804,7 @@ void MainPanel::_estop_tap(lv_event_t *e) {
 void MainPanel::_estop_keepalive(lv_timer_t *t) {
   auto *s = static_cast<MainPanel *>(t->user_data);
   if (!s->estop_btn_) return;
-  if (s->confirm_h_.card && !lv_obj_has_flag(s->confirm_h_.card, LV_OBJ_FLAG_HIDDEN)) return;
-  lv_obj_t *top = lv_layer_top();
-  uint32_t n = lv_obj_get_child_cnt(top);
-  if (n && lv_obj_get_child(top, n - 1) != s->estop_btn_)
-    lv_obj_move_foreground(s->estop_btn_);
+  pono::estop_reassert();  // the same rule raise_overlay applies, kept in one place
 }
 
 void MainPanel::confirm(const char *msg, std::function<void()> action) {

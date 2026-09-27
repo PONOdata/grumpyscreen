@@ -443,5 +443,39 @@ int main(int argc, char **argv) {
   fprintf(stderr, "E-STOP audit: %d labels and controls checked, %d under the lamp (hit %d,%d-%d,%d)\n",
           g_lamp_checked, under, (int)hit.x1, (int)hit.y1, (int)hit.x2, (int)hit.y2);
   if (g_lamp_checked == 0) return 4;  // an audit that saw nothing proves nothing
+
+  // Z-order, after the capture so it cannot change the image: each top-layer
+  // overlay, once shown and raised, must leave the E-STOP as the last child of
+  // lv_layer_top(), except while a confirm is open. Without raise_overlay the
+  // overlay itself is last and this fails with exit 5.
+  lv_obj_t *layer = lv_layer_top();
+  lv_obj_t *confirm_slot = nullptr;
+  pono::estop_guard_set(lamp, &confirm_slot);
+  int zfail = 0;
+  auto zcheck = [&](const char *what, bool expect_lamp) {
+    bool top_is_lamp = lv_obj_get_child(layer, lv_obj_get_child_cnt(layer) - 1) == lamp;
+    bool ok = top_is_lamp == expect_lamp;
+    if (!ok) zfail++;
+    fprintf(stderr, "E-STOP z-order after %s: last=%s  %s\n", what,
+            top_is_lamp ? "estop" : "overlay", ok ? "OK" : "FAIL");
+  };
+  pono::busy_show("z-order check");
+  zcheck("busy_show", true);
+  pono::omega_status_show("Full Cal 3/10: z-order");
+  zcheck("omega_status_show", true);
+  pono::cal_log_show("z-order check", "", 3, 10, false, nullptr, nullptr);
+  zcheck("cal_log_show", true);
+  // An open confirm keeps the E-STOP under it, so the dialog can be answered.
+  // The slot is filled after registration, as the real card is.
+  confirm_slot = lv_obj_create(layer);
+  pono::busy_show("z-order check (confirm open)");
+  zcheck("busy_show with confirm open", false);
+  lv_obj_del(confirm_slot);
+  confirm_slot = nullptr;
+  pono::estop_guard_set(nullptr, nullptr);
+  pono::busy_hide();
+  pono::omega_status_hide();
+  pono::cal_log_hide();
+  if (zfail) return 5;
   return under ? 3 : 0;
 }
