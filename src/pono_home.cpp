@@ -636,6 +636,7 @@ void build_settings(lv_obj_t *parent, SettingsHandles *h) {
   {
     const int RW = 160, RX = estop_clear_x - 4 - RW;
     lv_obj_t *rs = panel(parent, RX, 10, RW, 28, opa_border_medium);
+    lv_obj_set_ext_click_area(rs, 4);  // 28 px is short for a resistive panel; right reach ends at 395, left of estop_clear_x
     lv_obj_center(tag(rs, "BACK TO PRINT VALUES", color_accent_secondary, 0, 0));
     if (h) { lv_obj_add_flag(rs, LV_OBJ_FLAG_HIDDEN); h->reset = rs; }
   }

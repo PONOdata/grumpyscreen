@@ -69,6 +69,9 @@ std::string klipper_reason(const std::string &m) {
     if (nl == std::string::npos) break;
     pos = nl + 1;
   }
+  // A shutdown with no message, or one that is only a traceback header, would
+  // leave the fault card with a title and nothing under it.
+  if (out.empty()) out = "See klippy.log for details.";
   return out;
 }
 } // namespace
@@ -342,8 +345,14 @@ void InitPanel::begin_handshake(unsigned epoch) {
         if (!data.contains("result")) {
           // Klipper went away between the list and the subscribe. Stand down;
           // the poll asks again and a ready state starts a fresh handshake.
+          // Step the bar back so it does not sit at 78% while it waits. Direct
+          // calls, not set_stage(), which takes lv_lock again.
           std::lock_guard<std::mutex> lock(this->lv_lock);
-          if (epoch == this->conn_epoch_.load()) this->handshaking_ = false;
+          if (epoch == this->conn_epoch_.load()) {
+            this->handshaking_ = false;
+            pono::boot_show_loading(&this->boot_);
+            pono::boot_set_progress(&this->boot_, 55, "Waiting for printer...");
+          }
           return;
         }
         // A retired chain (a drop, or the poll watchdog) must not load its
