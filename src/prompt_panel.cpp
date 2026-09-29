@@ -91,7 +91,7 @@ PromptPanel::~PromptPanel() {
 
 void PromptPanel::foreground() {
   // shrink wrap
-  pono::raise_overlay(prompt_cont);  // on lv_layer_top: E-STOP straight back over it
+  pono::raise_overlay(prompt_cont);  // prompt_cont is on the screen, so background() hides it behind main_cont; the raise re-asserts the E-STOP
 }
 
 void PromptPanel::background() {

@@ -818,6 +818,7 @@ void MainPanel::notice(const char *msg) {
   if (notice_h_.msg) lv_label_set_text(notice_h_.msg, msg);
   if (notice_h_.scrim) { lv_obj_clear_flag(notice_h_.scrim, LV_OBJ_FLAG_HIDDEN); lv_obj_move_foreground(notice_h_.scrim); }
   if (notice_h_.card)  { lv_obj_clear_flag(notice_h_.card,  LV_OBJ_FLAG_HIDDEN); lv_obj_move_foreground(notice_h_.card); }
+  pono::estop_reassert();  // the notice is a top-layer scrim; do not leave the E-STOP under it until the keepalive
 }
 
 void MainPanel::_notice_tap(lv_event_t *e) {
