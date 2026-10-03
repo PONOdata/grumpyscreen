@@ -45,26 +45,40 @@ jobs:
             // sums to about four and a half minutes and exits the moment arming succeeds.
             const BACKOFF_MS = [5000, 10000, 20000, 30000, 45000, 60000, 60000, 60000];
 
+            // A wall-clock bound on the whole loop, so the last-resort merge below always
+            // runs inside the job's 8 minute cap. Measured on PONOdata/Appy #57 on
+            // 2026-10-03: one call hung for 307 seconds before failing, the cap cancelled
+            // the job in its backoff, and a merge that would have succeeded never ran.
+            const DEADLINE_MS = 6 * 60 * 1000;
+            // The same hang bounded per call, so no single request outlives this.
+            const REQUEST_TIMEOUT_MS = 30000;
+
             const ENABLE_AUTO_MERGE = `mutation($id: ID!) {
               enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) {
                 clientMutationId
               }
             }`;
 
-            async function enableAutoMerge({ github, context, core, backoff = BACKOFF_MS, sleep }) {
+            async function enableAutoMerge({
+              github, context, core, backoff = BACKOFF_MS, sleep, now, deadlineMs = DEADLINE_MS,
+            }) {
               const pr = context.payload.pull_request;
               const wait = sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
+              const clock = now || (() => Date.now());
+              const started = clock();
+              const request = () => ({ signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
               const squash = () =>
                 github.rest.pulls.merge({
                   ...context.repo,
                   pull_number: pr.number,
                   merge_method: "squash",
+                  request: request(),
                 });
               let last = "";
 
               for (let attempt = 0; attempt <= backoff.length; attempt++) {
                 try {
-                  await github.graphql(ENABLE_AUTO_MERGE, { id: pr.node_id });
+                  await github.graphql(ENABLE_AUTO_MERGE, { id: pr.node_id, request: request() });
                   core.info("auto-merge enabled");
                   return "armed";
                 } catch (e) {
@@ -76,7 +90,15 @@ jobs:
                   // merges now or it never does. Merging here grants nothing extra: clean
                   // is GitHub's own verdict that the required contexts are green, which is
                   // the same condition auto-merge would have waited for.
-                  if (/clean status/i.test(last)) {
+                  //
+                  // "unstable status" gets the same attempt. It means the required checks
+                  // can be green while some other check is not, and this job is one such
+                  // check for as long as it runs, so a PR whose gate finished first never
+                  // reaches clean while the job is alive. Measured on PONOdata/Appy #57:
+                  // seven required contexts green in 13 seconds, then eight minutes of
+                  // refusals. While the gate is still running the ruleset refuses this
+                  // merge, so it lands nothing auto-merge would not have.
+                  if (/clean status|unstable status/i.test(last)) {
                     // This merge is NOT allowed to throw. Unguarded, a refusal here
                     // escapes the loop and the function, reaches the top-level call with
                     // no handler, and github-script turns an unhandled rejection into a
@@ -92,7 +114,13 @@ jobs:
                     }
                   }
 
-                  if (attempt < backoff.length) await wait(backoff[attempt]);
+                  if (attempt < backoff.length) {
+                    if (clock() - started + backoff[attempt] > deadlineMs) {
+                      core.info(`deadline: ${Math.round((clock() - started) / 1000)}s spent, stopping the retries`);
+                      break;
+                    }
+                    await wait(backoff[attempt]);
+                  }
                 }
               }
 
