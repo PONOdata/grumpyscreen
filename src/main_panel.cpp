@@ -1470,7 +1470,11 @@ void MainPanel::_fan_slider_cb(lv_event_t *e) {
     return;
   }
   if (t == s->tune_h_.speed) {                 // Expert Tune feedrate (M220), not a fan
+    // Recorded like every other speed writer, so a -/+ step soon after a drag
+    // starts from the dragged value, not from an ask still pending before it.
+    s->tune_speed_ask_ = v;
     s->ws.gcode_script(fmt::format("M220 S{}", v));
+    s->tune_request(TUNE_SPEED, fmt::format("{}%", v));
     if (s->tune_h_.speed_val) lv_label_set_text(s->tune_h_.speed_val, fmt::format("{}%", v).c_str());
     return;
   }
