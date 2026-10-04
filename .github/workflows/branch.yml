@@ -115,20 +115,37 @@ jobs:
         # flashes, and they are a seventh of the size.
         retention-days: 1
 
-    # Only a push to pono publishes. A topic branch build is CI, and its
-    # tarballs stay on the run as artifacts. Pull-request triggers skip this
-    # step too: the release-finalize API call rejects updates when the tag
-    # already exists, so PR-time runs were racing the release creation and
-    # aborting all 3 builds (workflow flake, 2026-05-22).
-    #
-    # The tag is build/pono, not the branch name. Tagging each release after
-    # its branch put a tag called pono beside the branch pono, frozen at
-    # f21faf4 since 2026-08-19, so anything that asked for "pono" by name
-    # could get that commit instead of the branch head. It did twice: the
-    # contents API served a file the branch had deleted, and a subtree pull
-    # grafted the tag. Every topic branch that pushed got a shadow tag too.
+  # Only a push to pono publishes. A topic branch build is CI, and its
+  # tarballs stay on the run as artifacts. Pull-request triggers skip this job
+  # too: the release-finalize API call rejects updates when the tag already
+  # exists, so PR-time runs were racing the release creation and aborting all
+  # 3 builds (workflow flake, 2026-05-22).
+  #
+  # One job publishes, after every leg has built. When each leg released its
+  # own tarballs, a fresh build/pono had three concurrent creators, and a leg
+  # that failed left the others' new tarballs under a tag that release-tag,
+  # skipped with the failed build, never moved. Now a failed leg publishes
+  # nothing, and the tag moves in the same job that uploaded the tarballs.
+  #
+  # The tag is build/pono, not the branch name. Tagging each release after
+  # its branch put a tag called pono beside the branch pono, frozen at
+  # f21faf4 since 2026-08-19, so anything that asked for "pono" by name
+  # could get that commit instead of the branch head. It did twice: the
+  # contents API served a file the branch had deleted, and a subtree pull
+  # grafted the tag. Every topic branch that pushed got a shadow tag too.
+  publish:
+    needs: build
+    if: github.event_name == 'push' && github.ref_name == 'pono'
+    runs-on: ubuntu-22.04
+    steps:
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        path: dist
+        merge-multiple: true
+
+    # Named one by one so a missing tarball fails the release instead of
+    # publishing a short set.
     - name: branch release
-      if: github.event_name == 'push' && github.ref_name == 'pono'
       uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
       with:
         name: build/pono
@@ -136,18 +153,17 @@ jobs:
         target_commitish: ${{ github.sha }}
         make_latest: true
         files: |
-          ${{ matrix.asset }}.tar.gz
-          ${{ matrix.asset }}-debug.tar.gz
+          dist/guppyscreen.tar.gz
+          dist/guppyscreen-debug.tar.gz
+          dist/guppyscreen-smallscreen.tar.gz
+          dist/guppyscreen-smallscreen-debug.tar.gz
+          dist/guppyscreen-rpi.tar.gz
+          dist/guppyscreen-rpi-debug.tar.gz
         fail_on_unmatched_files: true
 
-  # softprops creates build/pono on the first run and never moves it, so on
-  # its own the tag would stay on that first commit while the tarballs under
-  # it kept updating. Point it at the commit these tarballs were built from.
-  release-tag:
-    needs: build
-    if: github.event_name == 'push' && github.ref_name == 'pono'
-    runs-on: ubuntu-22.04
-    steps:
+    # softprops creates build/pono on the first run and never moves it, so on
+    # its own the tag would stay on that first commit while the tarballs under
+    # it kept updating. Point it at the commit these tarballs were built from.
     - name: point build/pono at this build
       env:
         GH_TOKEN: ${{ github.token }}
