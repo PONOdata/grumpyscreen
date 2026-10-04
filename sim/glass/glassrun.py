@@ -115,10 +115,10 @@ def tap(x, y, hold):
 
 
 if action == "start":
-    subprocess.call(["/etc/init.d/grumpyscreen", "stop"])
+    subprocess.call(["/etc/init.d/grumpyscreen", "stop"], timeout=60)
     time.sleep(0.5)
     # Fixed argv, BIN is the operator's own test binary.
-    if subprocess.call(["start-stop-daemon", "-S", "-b", "-m", "-p", PID, "-x", BIN]) != 0:
+    if subprocess.call(["start-stop-daemon", "-S", "-b", "-m", "-p", PID, "-x", BIN], timeout=60) != 0:
         sys.exit("could not start %s. Upload the test binary first, then rerun. "
                  "Put the stock UI back with /etc/init.d/grumpyscreen restart" % BIN)
 elif action == "krestart":
