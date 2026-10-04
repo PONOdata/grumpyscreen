@@ -45,13 +45,21 @@ jobs:
             // sums to about four and a half minutes and exits the moment arming succeeds.
             const BACKOFF_MS = [5000, 10000, 20000, 30000, 45000, 60000, 60000, 60000];
 
-            // A wall-clock bound on the whole loop, so the last-resort merge below always
-            // runs inside the job's 8 minute cap. Measured on PONOdata/Appy #57 on
-            // 2026-10-03: one call hung for 307 seconds before failing, the cap cancelled
-            // the job in its backoff, and a merge that would have succeeded never ran.
-            const DEADLINE_MS = 6 * 60 * 1000;
+            // A wall-clock bound on the whole function, last-resort merge included, so
+            // that merge finishes inside the job's 8 minute cap. Measured on PONOdata/Appy
+            // #57 on 2026-10-03: one call hung for 307 seconds before failing, the cap
+            // cancelled the job in its backoff, and a merge that would have succeeded never
+            // ran. 420 s leaves 60 s of the 480 s cap for everything before this script,
+            // which took 4 to 6 s on real runs (job setup, key gate, token mint).
+            const DEADLINE_MS = 7 * 60 * 1000;
             // The same hang bounded per call, so no single request outlives this.
             const REQUEST_TIMEOUT_MS = 30000;
+            // The most one retry can still spend after the deadline check lets it start:
+            // the arm call, the direct merge a clean or unstable refusal triggers, and the
+            // last-resort merge after the loop, each up to REQUEST_TIMEOUT_MS. Charging
+            // these in the check is what makes DEADLINE_MS a bound on the function rather
+            // than on the waits.
+            const ATTEMPT_RESERVE_MS = 3 * REQUEST_TIMEOUT_MS;
 
             const ENABLE_AUTO_MERGE = `mutation($id: ID!) {
               enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: SQUASH }) {
@@ -115,7 +123,7 @@ jobs:
                   }
 
                   if (attempt < backoff.length) {
-                    if (clock() - started + backoff[attempt] > deadlineMs) {
+                    if (clock() - started + backoff[attempt] + ATTEMPT_RESERVE_MS > deadlineMs) {
                       core.info(`deadline: ${Math.round((clock() - started) / 1000)}s spent, stopping the retries`);
                       break;
                     }
