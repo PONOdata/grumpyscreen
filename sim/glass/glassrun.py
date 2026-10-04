@@ -47,7 +47,9 @@ for a in (a for a in sys.argv[3:] if a.startswith("tap:")):
     x, y = xy.split(",")
     taps.append([float(t), int(x), int(y), False, float(hold or 0.12)])
 # One contact only: every tap drives MT slot 0, so overlapping windows would
-# stomp each other's down/up events and read as a single bogus touch.
+# stomp each other's down/up events and read as a single bogus touch. This
+# refuses a schedule that asks for overlap. A tap the loop launches late can
+# still reach the next one's start, and TAP_LOCK in tap() covers that case.
 for a, b in zip(sorted(taps), sorted(taps)[1:]):
     if b[0] < a[0] + a[4]:
         sys.exit("taps %d,%d@%g~%g and %d,%d@%g overlap; they share MT slot 0. Space them out."
@@ -78,26 +80,38 @@ def kstate():
 EV = struct.Struct("IIHHi")  # armv7 input_event: 32-bit sec, usec, type, code, value
 
 
+# Taps run on their own threads and share MT slot 0, so a tap waits for the
+# one before it to release instead of writing over a held contact.
+TAP_LOCK = threading.Lock()
+
+
 def tap(x, y, hold):
-    fd = os.open("/dev/input/event0", os.O_WRONLY)
+    with TAP_LOCK:
+        fd = os.open("/dev/input/event0", os.O_WRONLY)
 
-    def ev(t, c, v):
-        os.write(fd, EV.pack(0, 0, t, c, v))
+        def ev(t, c, v):
+            os.write(fd, EV.pack(0, 0, t, c, v))
 
-    # MT_SLOT 0, TRACKING_ID 0, MT_X, MT_Y, BTN_TOUCH down, ABS_X/Y, SYN
-    ev(3, 0x2F, 0)
-    ev(3, 0x39, 0)
-    ev(3, 0x35, x)
-    ev(3, 0x36, y)
-    ev(1, 0x14A, 1)
-    ev(3, 0, x)
-    ev(3, 1, y)
-    ev(0, 0, 0)
-    time.sleep(hold)
-    ev(3, 0x39, -1)
-    ev(1, 0x14A, 0)
-    ev(0, 0, 0)
-    os.close(fd)
+        try:
+            # MT_SLOT 0, TRACKING_ID 0, MT_X, MT_Y, BTN_TOUCH down, ABS_X/Y, SYN
+            ev(3, 0x2F, 0)
+            ev(3, 0x39, 0)
+            ev(3, 0x35, x)
+            ev(3, 0x36, y)
+            ev(1, 0x14A, 1)
+            ev(3, 0, x)
+            ev(3, 1, y)
+            ev(0, 0, 0)
+            time.sleep(hold)
+        finally:
+            # Release even when a write above failed, so the panel is not left
+            # holding a touch, then close the fd whatever the release did.
+            try:
+                ev(3, 0x39, -1)
+                ev(1, 0x14A, 0)
+                ev(0, 0, 0)
+            finally:
+                os.close(fd)
 
 
 if action == "start":
@@ -112,8 +126,16 @@ elif action == "krestart":
 elif action == "estop":
     print("estop", post("/printer/emergency_stop"))
 
+# Line-buffered and written as the capture runs, so a run cut short still
+# leaves an index for the frames it wrote.
+index = open(os.path.join(out, "index.txt"), "w", buffering=1)
+
+
+def note(line):
+    index.write(line + "\n")
+
+
 t0 = time.time()
-lines = []
 i = 0
 while time.time() - t0 < secs:
     now = time.time() - t0
@@ -121,16 +143,16 @@ while time.time() - t0 < secs:
         if not tp[3] and now >= tp[0]:
             threading.Thread(target=tap, args=(tp[1], tp[2], tp[4])).start()
             tp[3] = True
-            lines.append("TAP %d,%d at %d ms hold %d ms" % (tp[1], tp[2], int(now * 1000), int(tp[4] * 1000)))
+            note("TAP %d,%d at %d ms hold %d ms" % (tp[1], tp[2], int(now * 1000), int(tp[4] * 1000)))
     with open("/dev/fb0", "rb") as fb:
         raw = fb.read(FB_BYTES)
     if len(raw) != FB_BYTES:
-        lines.append("SHORT READ %d of %d bytes" % (len(raw), FB_BYTES))
+        note("SHORT READ %d of %d bytes" % (len(raw), FB_BYTES))
     ms = int((time.time() - t0) * 1000)
     fn = "%03d_%05d.z" % (i, ms)
     with open(os.path.join(out, fn), "wb") as o:
         o.write(zlib.compress(raw, 1))
-    lines.append("%s %s" % (fn, kstate()))
+    note("%s %s" % (fn, kstate()))
     i += 1
     time.sleep(0.2)
 missed = ["%d,%d@%g" % (tp[1], tp[2], tp[0]) for tp in taps if not tp[3]]
@@ -140,10 +162,9 @@ if missed:
         ", ".join(missed),
         secs,
     )
-    lines.append(msg)
+    note(msg)
     print(msg)
-with open(os.path.join(out, "index.txt"), "w") as f:
-    f.write("\n".join(lines) + "\n")
+index.close()
 print("frames", i, "final", kstate())
 if action == "start":
     print("stock UI is still stopped. Restore it with /etc/init.d/grumpyscreen restart")

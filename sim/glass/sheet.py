@@ -16,6 +16,10 @@ from PIL import Image, ImageDraw
 src, dst = sys.argv[1], sys.argv[2]
 every = int(sys.argv[3]) if len(sys.argv) > 3 else 1
 first = int(sys.argv[4]) if len(sys.argv) > 4 else 10**9
+# Zero would raise inside the slice and a negative value reverses or trims
+# from the end, so both are refused here with a plain message.
+if every < 1 or first < 1:
+    sys.exit("every and first must be 1 or more, got every=%d first=%d" % (every, first))
 state = {}
 idx = os.path.join(src, "index.txt")
 if os.path.exists(idx):
