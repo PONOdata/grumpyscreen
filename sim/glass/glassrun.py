@@ -119,12 +119,18 @@ def tap(x, y, hold):
 
 
 if action == "start":
-    subprocess.call(["/etc/init.d/grumpyscreen", "stop"], timeout=60)
-    time.sleep(0.5)
-    # Fixed argv, BIN is the operator's own test binary.
-    if subprocess.call(["start-stop-daemon", "-S", "-b", "-m", "-p", PID, "-x", BIN], timeout=60) != 0:
-        sys.exit("could not start %s. Upload the test binary first, then rerun. "
-                 "Put the stock UI back with /etc/init.d/grumpyscreen restart" % BIN)
+    RESTORE = "Put the stock UI back with /etc/init.d/grumpyscreen restart"
+    try:
+        subprocess.call(["/etc/init.d/grumpyscreen", "stop"], timeout=60)
+        time.sleep(0.5)
+        # Fixed argv, BIN is the operator's own test binary.
+        started = subprocess.call(["start-stop-daemon", "-S", "-b", "-m", "-p", PID, "-x", BIN], timeout=60)
+    except subprocess.TimeoutExpired as e:
+        # call() kills a child that runs past its timeout and raises; it never
+        # returns nonzero for it, so a hang needs the same guidance here.
+        sys.exit("%s hung past %g s and was killed. %s" % (e.cmd[0], e.timeout, RESTORE))
+    if started != 0:
+        sys.exit("could not start %s. Upload the test binary first, then rerun. %s" % (BIN, RESTORE))
 elif action == "krestart":
     print("restart", post("/printer/restart"))
 elif action == "estop":
