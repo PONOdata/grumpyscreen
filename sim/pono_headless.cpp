@@ -116,7 +116,9 @@ static lv_area_t label_ink(lv_obj_t *l) {
 // Raw coords clipped by each parent: lv_obj_area_is_visible pads every area by
 // 5px for invalidation, which would flag a hairline that clears the lamp. A
 // label is judged by its glyphs, a control by its whole touch area, and a rule
-// line (2px or thinner) not at all: it is drawn, never read or tapped.
+// line (2px or thinner) not at all: it is drawn, never read or tapped. A thin
+// control with an extended click area is a real target, so a control's
+// thinness is read off its click area, not its drawn box.
 static int g_lamp_checked = 0;
 static int audit_under_lamp(lv_obj_t *o, lv_obj_t *lamp, const lv_area_t *hit,
                             const lv_area_t *clip) {
@@ -132,12 +134,13 @@ static int audit_under_lamp(lv_obj_t *o, lv_obj_t *lamp, const lv_area_t *hit,
     if (!shown) continue;
     const bool label = lv_obj_check_type(c, &lv_label_class);
     if (!label && !lv_obj_has_flag(c, LV_OBJ_FLAG_CLICKABLE)) continue;
-    if (lv_area_get_width(&a) <= 2 || lv_area_get_height(&a) <= 2) continue;
-    g_lamp_checked++;
-    if (_lv_area_is_in(hit, &a, 0)) continue;  // a backdrop the lamp sits on
     lv_area_t reach;
     if (label) reach = label_ink(c);
     else lv_obj_get_click_area(c, &reach);
+    const lv_area_t *extent = label ? &a : &reach;
+    if (lv_area_get_width(extent) <= 2 || lv_area_get_height(extent) <= 2) continue;
+    g_lamp_checked++;
+    if (_lv_area_is_in(hit, &a, 0)) continue;  // a backdrop the lamp sits on
     lv_area_t x;
     if (!_lv_area_intersect(&reach, &reach, clip) || !_lv_area_intersect(&x, &reach, hit)) continue;
     a = reach;
@@ -453,11 +456,12 @@ int main(int argc, char **argv) {
   pono::estop_guard_set(lamp, &confirm_slot);
   int zfail = 0;
   auto zcheck = [&](const char *what, bool expect_lamp) {
-    bool top_is_lamp = lv_obj_get_child(layer, lv_obj_get_child_cnt(layer) - 1) == lamp;
+    lv_obj_t *last = lv_obj_get_child(layer, lv_obj_get_child_cnt(layer) - 1);
+    bool top_is_lamp = last == lamp;
     bool ok = top_is_lamp == expect_lamp;
     if (!ok) zfail++;
     fprintf(stderr, "E-STOP z-order after %s: last=%s  %s\n", what,
-            top_is_lamp ? "estop" : "overlay", ok ? "OK" : "FAIL");
+            top_is_lamp ? "estop" : (last == confirm_slot ? "confirm" : "overlay"), ok ? "OK" : "FAIL");
   };
   pono::busy_show("z-order check");
   zcheck("busy_show", true);
@@ -470,6 +474,14 @@ int main(int argc, char **argv) {
   confirm_slot = lv_obj_create(layer);
   pono::busy_show("z-order check (confirm open)");
   zcheck("busy_show with confirm open", false);
+  // The lamp not being last is not enough: the confirm itself has to sit above
+  // it, or the dialog is still under the E-STOP's touch area.
+  {
+    const bool above = lv_obj_get_index(confirm_slot) > lv_obj_get_index(lamp);
+    if (!above) zfail++;
+    fprintf(stderr, "E-STOP z-order with confirm open: confirm %s the lamp  %s\n",
+            above ? "above" : "below", above ? "OK" : "FAIL");
+  }
   lv_obj_del(confirm_slot);
   confirm_slot = nullptr;
   pono::estop_guard_set(nullptr, nullptr);

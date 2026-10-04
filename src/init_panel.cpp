@@ -234,6 +234,8 @@ void InitPanel::probe_reply(json &j, unsigned epoch, unsigned seq) {
     if (seq != probe_seq_) return;   // a newer probe is out; only its answer is current
     probe_inflight_ = false;
     if (epoch != conn_epoch_.load() || handshaking_) return;   // a newer link, or already loading
+    const bool was_unexpected = unexpected_logged_;
+    unexpected_logged_ = false;   // set again below only if this reply is still unknown
 
     if (state == "ready") {
       handshaking_ = true;
@@ -263,7 +265,12 @@ void InitPanel::probe_reply(json &j, unsigned epoch, unsigned seq) {
       } else {
         // A state this build does not know, or a reply with no state at all.
         // Name it on the cover and in the log rather than waiting on nothing.
-        LOG_INFO("unexpected klipper state '{}'", state);
+        // The poll re-asks while the cover is up, so the log line is written
+        // once per run of the same state, not on every reply.
+        if (!was_unexpected || state != unexpected_state_)
+          LOG_INFO("unexpected klipper state '{}'", state);
+        unexpected_logged_ = true;
+        unexpected_state_ = state;
         const std::string wait = state.empty()
             ? std::string("Waiting for Klipper to start...")
             : ("Klipper reports " + state + ". Waiting...");

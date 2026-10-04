@@ -61,6 +61,8 @@ class InitPanel {
   uint32_t born_ms_ = 0;              // lv_tick at construction, times the intro hold
   uint32_t restart_grace_until_ = 0;  // after a Restart tap, a stale shutdown reply does not re-show the fault
   bool restart_grace_ = false;
+  bool unexpected_logged_ = false;    // the last reply was an unknown state, already logged
+  std::string unexpected_state_;      // which one, so a different unknown state still logs
 
   // Collaborators; safe from either thread.
   KWebSocketClient &ws;

@@ -65,7 +65,9 @@ void boot_show_loading(BootHandles *h);
 // The fault layout, for a Klipper that stopped (shutdown) or cannot start
 // (error). The headline takes the status line, Klipper's own reason sits under
 // it, and the recovery button takes the dedication's place; the bar hides,
-// because nothing is loading. reason may be empty. NULL-safe.
+// because nothing is loading. h, headline and reason may each be NULL: a
+// NULL headline keeps the status text already shown, and a NULL or empty
+// reason hides the reason line.
 void boot_show_fault(BootHandles *h, const char *headline, const char *reason);
 
 // Act 1: the one-shot boot wake. The flag, joke, and dedication fade and rise
