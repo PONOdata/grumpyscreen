@@ -90,32 +90,42 @@ TAP_LOCK = threading.Lock()
 
 def tap(x, y, hold):
     with TAP_LOCK:
-        fd = os.open("/dev/input/event0", os.O_WRONLY)
-
-        def ev(t, c, v):
-            os.write(fd, EV.pack(0, 0, t, c, v))
-
         try:
-            # MT_SLOT 0, TRACKING_ID 0, MT_X, MT_Y, BTN_TOUCH down, ABS_X/Y, SYN
-            ev(3, 0x2F, 0)
-            ev(3, 0x39, 0)
-            ev(3, 0x35, x)
-            ev(3, 0x36, y)
-            ev(1, 0x14A, 1)
-            ev(3, 0, x)
-            ev(3, 1, y)
+            touch(x, y, hold)
+        except Exception as e:
+            # The loop already counts this tap as launched, so MISSED will not
+            # name it. Write its own line before the thread dies.
+            note("TAP %d,%d FAILED %s: %s" % (x, y, type(e).__name__, e))
+            raise
+
+
+def touch(x, y, hold):
+    fd = os.open("/dev/input/event0", os.O_WRONLY)
+
+    def ev(t, c, v):
+        os.write(fd, EV.pack(0, 0, t, c, v))
+
+    try:
+        # MT_SLOT 0, TRACKING_ID 0, MT_X, MT_Y, BTN_TOUCH down, ABS_X/Y, SYN
+        ev(3, 0x2F, 0)
+        ev(3, 0x39, 0)
+        ev(3, 0x35, x)
+        ev(3, 0x36, y)
+        ev(1, 0x14A, 1)
+        ev(3, 0, x)
+        ev(3, 1, y)
+        ev(0, 0, 0)
+        note("TAP %d,%d at %d ms hold %d ms" % (x, y, int((time.time() - t0) * 1000), int(hold * 1000)))
+        time.sleep(hold)
+    finally:
+        # Release even when a write above failed, so the panel is not left
+        # holding a touch, then close the fd whatever the release did.
+        try:
+            ev(3, 0x39, -1)
+            ev(1, 0x14A, 0)
             ev(0, 0, 0)
-            note("TAP %d,%d at %d ms hold %d ms" % (x, y, int((time.time() - t0) * 1000), int(hold * 1000)))
-            time.sleep(hold)
         finally:
-            # Release even when a write above failed, so the panel is not left
-            # holding a touch, then close the fd whatever the release did.
-            try:
-                ev(3, 0x39, -1)
-                ev(1, 0x14A, 0)
-                ev(0, 0, 0)
-            finally:
-                os.close(fd)
+            os.close(fd)
 
 
 if action == "start":
@@ -176,7 +186,7 @@ while time.time() - t0 < secs:
 # stays open until every tap is done.
 for th in threads:
     th.join()
-missed =["%d,%d@%g" % (tp[1], tp[2], tp[0]) for tp in taps if not tp[3]]
+missed = ["%d,%d@%g" % (tp[1], tp[2], tp[0]) for tp in taps if not tp[3]]
 if missed:
     # A tap at or past SECONDS never fires: say so instead of passing quietly.
     msg = "MISSED taps %s: the %g s capture ended first. Raise SECONDS and rerun." % (
