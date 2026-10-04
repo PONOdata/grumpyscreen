@@ -21,7 +21,7 @@ namespace pono {
 struct TuneReset {
   enum { SPEED, FLOW, ZOFF, PA, FAN, N };  // MainPanel's TUNE_* order, asserted there
   std::string base[N];  // machine value before the first screen change (PA, fan), empty when none
-  std::string mine[N];  // what this screen last asked for, empty when nothing is outstanding
+  std::string mine[N];  // what this screen last asked for; kept once the machine reports it, cleared only by drop()
 
   static bool snapshots(int i) { return i == PA || i == FAN; }
 
