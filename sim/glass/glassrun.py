@@ -16,7 +16,8 @@ usage: glassrun.py NAME SECONDS [ACTION] [tap:X,Y@T[~H] ...]
 
 Frames land in /tmp/glass/NAME as zlib'd BGRA, 480x272, about every 0.2 s,
 plus index.txt: one line per frame (file name, then Klipper's state or the
-error text) and one line per tap. Decode them on the desktop with sheet.py.
+error text) and one line per tap, stamped when it touches down. Decode them
+on the desktop with sheet.py.
 """
 import json
 import os
@@ -81,7 +82,9 @@ EV = struct.Struct("IIHHi")  # armv7 input_event: 32-bit sec, usec, type, code, 
 
 
 # Taps run on their own threads and share MT slot 0, so a tap waits for the
-# one before it to release instead of writing over a held contact.
+# one before it to release instead of writing over a held contact. Each tap
+# writes its own index line once it is down, so a tap that waited here carries
+# the time the panel got the touch, not the time the loop launched it.
 TAP_LOCK = threading.Lock()
 
 
@@ -102,6 +105,7 @@ def tap(x, y, hold):
             ev(3, 0, x)
             ev(3, 1, y)
             ev(0, 0, 0)
+            note("TAP %d,%d at %d ms hold %d ms" % (x, y, int((time.time() - t0) * 1000), int(hold * 1000)))
             time.sleep(hold)
         finally:
             # Release even when a write above failed, so the panel is not left
@@ -137,19 +141,26 @@ elif action == "estop":
 index = open(os.path.join(out, "index.txt"), "w", buffering=1)
 
 
+NOTE_LOCK = threading.Lock()
+
+
 def note(line):
-    index.write(line + "\n")
+    # Tap threads write here too.
+    with NOTE_LOCK:
+        index.write(line + "\n")
 
 
 t0 = time.time()
 i = 0
+threads = []
 while time.time() - t0 < secs:
     now = time.time() - t0
     for tp in taps:
         if not tp[3] and now >= tp[0]:
-            threading.Thread(target=tap, args=(tp[1], tp[2], tp[4])).start()
+            th = threading.Thread(target=tap, args=(tp[1], tp[2], tp[4]))
+            th.start()
+            threads.append(th)
             tp[3] = True
-            note("TAP %d,%d at %d ms hold %d ms" % (tp[1], tp[2], int(now * 1000), int(tp[4] * 1000)))
     with open("/dev/fb0", "rb") as fb:
         raw = fb.read(FB_BYTES)
     if len(raw) != FB_BYTES:
@@ -161,7 +172,11 @@ while time.time() - t0 < secs:
     note("%s %s" % (fn, kstate()))
     i += 1
     time.sleep(0.2)
-missed = ["%d,%d@%g" % (tp[1], tp[2], tp[0]) for tp in taps if not tp[3]]
+# A tap still waiting or held writes its line when it goes down, so the index
+# stays open until every tap is done.
+for th in threads:
+    th.join()
+missed =["%d,%d@%g" % (tp[1], tp[2], tp[0]) for tp in taps if not tp[3]]
 if missed:
     # A tap at or past SECONDS never fires: say so instead of passing quietly.
     msg = "MISSED taps %s: the %g s capture ended first. Raise SECONDS and rerun." % (
