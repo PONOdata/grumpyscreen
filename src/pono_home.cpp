@@ -530,11 +530,6 @@ void build_tune(lv_obj_t *parent, TuneHandles *h) {
     if (h) h->cals[i] = t;
   }
 
-  // The porch lamp makes its round of the options: a 60fps amber orbit, ambient
-  // only - the live state lives in the Make Pono narration, never in this light.
-  lv_obj_t *orb = tune_orbit_create(parent);
-  if (h) h->orbit = orb;
-
   // ---- live speed slider ----
   tag(parent, "SPEED", color_text_tertiary, 12, 224);
   lv_obj_t *spv = lbl(parent, "100%", font_num_small, color_accent_secondary, 0, 0);
