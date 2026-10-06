@@ -74,6 +74,27 @@ static void hairline_c(lv_obj_t *o, lv_color_t color, lv_opa_t opa) {
   lv_obj_set_style_border_opa(o, opa, 0);
 }
 
+// Live readout as a tappable field (tap -> keypad in the app). It stays a
+// label, so the handle keeps taking lv_label_set_text. Fixed width, clipped,
+// so a longer value never reflows the row. Pressed look is instant.
+static void readout_pill(lv_obj_t *l, lv_coord_t w) {
+  lv_obj_set_width(l, w);
+  lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(l, LV_LABEL_LONG_CLIP);
+  lv_obj_set_style_bg_color(l, color_surface_base, 0);
+  lv_obj_set_style_bg_opa(l, LV_OPA_COVER, 0);
+  lv_obj_set_style_radius(l, radius_sm, 0);
+  hairline_c(l, color_accent_secondary, opa_border_medium);
+  lv_obj_set_style_pad_left(l, 6, 0);
+  lv_obj_set_style_pad_right(l, 6, 0);
+  lv_obj_set_style_pad_top(l, 0, 0);
+  lv_obj_set_style_pad_bottom(l, 0, 0);
+  lv_obj_add_flag(l, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_ext_click_area(l, 8);
+  lv_obj_set_style_bg_color(l, color_surface_raised, LV_STATE_PRESSED);
+  lv_obj_set_style_transition(l, nullptr, 0);  // no fade: react on touch
+}
+
 // Panel: the standard raised surface with a resting hairline.
 static lv_obj_t *panel(lv_obj_t *p, int x, int y, int w, int h,
                        lv_opa_t border = opa_border_subtle) {
@@ -538,7 +559,8 @@ void build_tune(lv_obj_t *parent, TuneHandles *h) {
   // ---- live speed slider ----
   tag(parent, "SPEED", color_text_tertiary, 12, 224);
   lv_obj_t *spv = lbl(parent, "100%", font_num_small, color_accent_secondary, 0, 0);
-  lv_obj_align(spv, LV_ALIGN_TOP_RIGHT, -14, 222);
+  readout_pill(spv, 60);
+  lv_obj_align(spv, LV_ALIGN_TOP_RIGHT, -14, 218);
   if (h) h->speed_val = spv;
   lv_obj_t *sl = lv_slider_create(parent);
   lv_obj_set_pos(sl, 12, 244);
@@ -554,6 +576,8 @@ void build_tune(lv_obj_t *parent, TuneHandles *h) {
   lv_obj_set_style_bg_color(sl, color_text_primary, LV_PART_KNOB);
   lv_obj_set_style_radius(sl, radius_sm, LV_PART_KNOB);
   if (h) h->speed = sl;
+  // pill after slider so it hit-tests before the slider's ext click area
+  lv_obj_move_foreground(spv);
 }
 
 // ---- Expert Tune screen ----------------------------------------------------
@@ -818,13 +842,14 @@ void build_filament(lv_obj_t *parent, FilamentHandles *h) {
   // Load length: slider + live mm readout (used by Load; Extrude/Retract keep
   // their fixed 25mm purge).
   tag(parent, "LOAD LENGTH", color_text_tertiary, 12, 106);
-  lv_obj_t *lval = lbl(parent, "200 mm", font_num_small, color_accent_secondary, 0, 0);
+  lv_obj_t *lval = lbl(parent, "100 mm", font_num_small, color_accent_secondary, 0, 0);
+  readout_pill(lval, 72);
   lv_obj_align(lval, LV_ALIGN_TOP_RIGHT, -14, 104);
   lv_obj_t *sl = lv_slider_create(parent);
   lv_obj_set_pos(sl, 12, 128);
   lv_obj_set_size(sl, 456, 10);
   lv_slider_set_range(sl, 50, 300);
-  lv_slider_set_value(sl, 200, LV_ANIM_OFF);
+  lv_slider_set_value(sl, 100, LV_ANIM_OFF);
   lv_obj_set_style_bg_color(sl, color_surface_elevated, LV_PART_MAIN);
   lv_obj_set_style_bg_opa(sl, LV_OPA_COVER, LV_PART_MAIN);
   lv_obj_set_style_radius(sl, radius_sm, LV_PART_MAIN);
@@ -833,6 +858,7 @@ void build_filament(lv_obj_t *parent, FilamentHandles *h) {
   lv_obj_set_style_bg_color(sl, color_text_primary, LV_PART_KNOB);
   lv_obj_set_style_radius(sl, radius_sm, LV_PART_KNOB);
   lv_obj_set_ext_click_area(sl, 16);  // thin track, fat finger
+  lv_obj_move_foreground(lval);
   if (h) { h->len_slider = sl; h->len_val = lval; }
 
   // load / unload (primary)
@@ -1272,6 +1298,7 @@ void build_fans(lv_obj_t *parent, FansHandles *h) {
     lv_obj_align(pv, LV_ALIGN_RIGHT_MID, -14, 0);
     if (h) h->val[i] = pv;
     if (settable[i]) {
+      readout_pill(pv, 60);
       lv_obj_t *sl = lv_slider_create(c);
       lv_obj_set_size(sl, 188, 8);
       lv_obj_set_ext_click_area(sl, 16);  // an 8px track is too thin to grab on a resistive panel
