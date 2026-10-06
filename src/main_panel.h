@@ -113,7 +113,16 @@ class MainPanel : public NotifyConsumer {
   void populate_files();                  // query Moonraker, fill the Files list
   static void _sub_tap(lv_event_t *e);    // sub-screen button -> gcode action
   static void _callog_stop(lv_event_t *e);  // Make Pono STOP -> CANCEL_PRINT (frictionless exit)
-  static void _fan_slider_cb(lv_event_t *e);
+  static void _fan_slider_cb(lv_event_t *e);       // VALUE_CHANGED show, RELEASED commit, SHORT_CLICKED numpad
+  static void _slider_readout_cb(lv_event_t *e);   // tapped readout field -> numpad for its slider
+  void slider_show(lv_obj_t *t, int v);            // readout text (and fil_len_), no gcode
+  void slider_commit(lv_obj_t *t, int v);          // send gcode, arm the status-sync hold
+  void slider_numpad(lv_obj_t *t);                 // exact entry for a slider
+  // Hold off status sync for a fresh commit until the readback matches or 1500 ms pass.
+  bool slider_held(int k, int incoming) const {
+    return slider_commit_val_[k] != INT_MIN && lv_tick_elaps(slider_commit_tick_[k]) < 1500 &&
+           incoming != slider_commit_val_[k];
+  }
   void read_tune(json &j, const char *root);          // Expert Tune readback from a status (init) or delta (consume)
   lv_obj_t *tune_pill(int i);
   void tune_request(int i, const std::string &txt);   // show a sent value as pending, arm the settle timer
@@ -174,6 +183,9 @@ class MainPanel : public NotifyConsumer {
   int rend_nozzle_ = INT_MIN, rend_nozzle_set_ = INT_MIN;
   int rend_bed_ = INT_MIN, rend_bed_set_ = INT_MIN;
   int rend_fan_[5] = { INT_MIN, INT_MIN, INT_MIN, INT_MIN, INT_MIN };
+  // Last slider commit: 0..2 the fan sliders, 3 the speed slider; INT_MIN none.
+  uint32_t slider_commit_tick_[4] = { 0, 0, 0, 0 };
+  int slider_commit_val_[4] = { INT_MIN, INT_MIN, INT_MIN, INT_MIN };
   const void *rend_led_img_ = nullptr;
   // ---- Pono native sub-screens ----
   lv_obj_t *move_scr_ = nullptr, *fil_scr_ = nullptr, *temp_scr_ = nullptr;
