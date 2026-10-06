@@ -51,10 +51,12 @@ lv_obj_t *spinner_create(lv_obj_t *parent, uint16_t period_ms = 1000);
 // to the frame; the caller positions it (pono_flag_boot_w / _h).
 lv_obj_t *boot_flag_create(lv_obj_t *parent);
 
-// Full-screen "working" overlay: a scrim + the comet spinner + a status line,
-// built once on lv_layer_top and reused. Throw it up at the start of any
-// blocking wait (homing, filament load, heating) and drop it when done. The
-// spinner anim is stopped while hidden, so an idle overlay costs nothing.
+// Full-screen "working" overlay: a scrim + an elapsed-time readout ("0:07",
+// m:ss) + a status line, built once on lv_layer_top and reused. Throw it up at
+// the start of any blocking wait (homing, filament load, heating) and drop it
+// when done. Each busy_show restarts the clock at 0:00; a 1 s lv_timer repaints
+// it and is deleted by busy_hide (and the 180 s watchdog), so an idle overlay
+// costs nothing.
 //
 // CONTRACT: both touch LVGL objects and do NOT self-lock. The caller must hold
 // GuppyScreen::lv_lock. Tap/timer handlers already run under it; a ws-thread
@@ -70,14 +72,6 @@ void busy_hide();
 // busy_show: the caller must hold GuppyScreen::lv_lock.
 void omega_status_show(const char *text);
 void omega_status_hide();
-
-// Make Pono orbit: a single amber porch-lamp glow tracing an elliptical round of
-// the Tune options at 60 fps, an unbroken loop. Ambient identity ONLY - it is not
-// a progress signal (the narration and the real bar carry state). Frameless: an
-// lv_anim drives angle -> (x,y), so there is no baked flipbook and no int8 frame
-// cap. Drawn behind its siblings so the light grazes the panel without covering
-// text. LVGL auto-stops the anim when the returned object is deleted.
-lv_obj_t *tune_orbit_create(lv_obj_t *parent);
 
 // Make Pono narration: a bottom "logbook" box that carries the live calibration
 // state honestly. NOW = the step running (phosphor), NEXT = what is coming (dim),

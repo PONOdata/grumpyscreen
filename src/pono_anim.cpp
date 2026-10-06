@@ -2,13 +2,14 @@
 // pono_anim.cpp - canned animation helpers. See pono_anim.h.
 #include "pono_anim.h"
 #include "pono_theme.h"
-#include <cstdio>  // sscanf: parse "Full Cal X/N" for the banner progress strip
-#include <cmath>   // cos/sin: the Make Pono orbit path
+#include <cstdio>  // sscanf: parse "Full Cal X/N" for the banner progress strip; snprintf: busy clock
 
 namespace {
 // Singleton "working" overlay, lazily built on lv_layer_top.
 lv_obj_t *g_busy = nullptr;
-lv_obj_t *g_busy_spinner = nullptr;
+lv_obj_t *g_busy_elapsed = nullptr;     // "m:ss" since the last busy_show
+lv_timer_t *g_busy_tick = nullptr;      // 1 s repaint of g_busy_elapsed, only while shown
+uint32_t g_busy_start_tick = 0;         // lv_tick_get() at the last busy_show
 lv_obj_t *g_busy_label = nullptr;
 lv_timer_t *g_busy_watchdog = nullptr;  // force-drops a stranded "working" scrim
 }  // namespace
@@ -84,6 +85,21 @@ static void busy_watchdog_cb(lv_timer_t *) {
   busy_hide();
 }
 
+// Elapsed-time readout. Seconds are rounded to nearest so lv_timer's small
+// per-fire lateness (last_run restarts at each fire) never skips a second.
+static void busy_paint_elapsed() {
+  if (g_busy_elapsed == nullptr) return;
+  uint32_t sec = (lv_tick_elaps(g_busy_start_tick) + 500) / 1000;
+  char buf[16];
+  snprintf(buf, sizeof(buf), "%u:%02u", (unsigned)(sec / 60), (unsigned)(sec % 60));
+  lv_label_set_text(g_busy_elapsed, buf);
+}
+// Runs inside lv_timer_handler, which already holds the UI lock: never lock here.
+static void busy_tick_cb(lv_timer_t *) { busy_paint_elapsed(); }
+static void busy_cancel_tick() {
+  if (g_busy_tick) { lv_timer_del(g_busy_tick); g_busy_tick = nullptr; }
+}
+
 // --- E-STOP over overlays --------------------------------------------------
 // Overlays on lv_layer_top() are raised on every update, and the E-STOP used to
 // come back above them only on MainPanel's 300 ms keepalive tick. In between,
@@ -130,8 +146,11 @@ void busy_show(const char *text) {
     lv_obj_set_style_bg_color(g_busy, color_surface_base, 0);
     lv_obj_set_style_bg_opa(g_busy, LV_OPA_90, 0);  // scrim swallows taps behind it
     lv_obj_clear_flag(g_busy, LV_OBJ_FLAG_SCROLLABLE);
-    g_busy_spinner = spinner_create(g_busy, 1000);
-    lv_obj_align(g_busy_spinner, LV_ALIGN_CENTER, 0, -16);
+    g_busy_elapsed = lv_label_create(g_busy);
+    lv_obj_set_style_text_color(g_busy_elapsed, color_accent_secondary, 0);
+    lv_obj_set_style_text_font(g_busy_elapsed, font_num_small, 0);
+    lv_label_set_text(g_busy_elapsed, "0:00");
+    lv_obj_align(g_busy_elapsed, LV_ALIGN_CENTER, 0, -16);
     g_busy_label = lv_label_create(g_busy);
     lv_obj_set_style_text_color(g_busy_label, color_text_primary, 0);
     lv_obj_set_style_text_font(g_busy_label, font_body, 0);
@@ -143,7 +162,11 @@ void busy_show(const char *text) {
   }
   lv_label_set_text(g_busy_label, text != nullptr ? text : "Working");
   lv_obj_align(g_busy_label, LV_ALIGN_CENTER, 0, 50);  // re-center after (re)wrap
-  lv_animimg_start(g_busy_spinner);  // re-arm (busy_hide stopped it)
+  // Restart the clock at 0:00 and repaint it once a second while shown.
+  g_busy_start_tick = lv_tick_get();
+  busy_paint_elapsed();
+  busy_cancel_tick();
+  g_busy_tick = lv_timer_create(busy_tick_cb, 1000, nullptr);
   lv_obj_clear_flag(g_busy, LV_OBJ_FLAG_HIDDEN);
   raise_overlay(g_busy);
   // (Re)arm the stranded-scrim watchdog. 180s comfortably outlasts the longest
@@ -156,8 +179,8 @@ void busy_show(const char *text) {
 
 void busy_hide() {
   busy_cancel_watchdog();
+  busy_cancel_tick();  // stop the clock -> zero cost while idle
   if (g_busy == nullptr) return;
-  lv_anim_del(g_busy_spinner, nullptr);  // stop the loop -> zero cost while idle
   lv_obj_add_flag(g_busy, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -216,51 +239,6 @@ void omega_status_show(const char *text) {
 void omega_status_hide() {
   if (g_omega == nullptr) return;
   lv_obj_add_flag(g_omega, LV_OBJ_FLAG_HIDDEN);
-}
-
-namespace {
-// The Make Pono orbit geometry, baked for the Tune cluster (two tiers up top +
-// five tiles below). One orbit per screen, so the path needs no per-instance
-// state: the exec_cb reads these constants. Center + radii trace the perimeter
-// of the options on the 480x272 panel.
-constexpr double ORBIT_CX = 240.0, ORBIT_CY = 134.0;
-constexpr double ORBIT_RX = 226.0, ORBIT_RY =  86.0;
-// v is the angle in tenths of a degree (0..3600): constant angular speed on an
-// ellipse gives a varying linear speed (quicker along the long axis), which
-// reads as an organic round, and the 0==3600 wrap stays invisible.
-void tune_orbit_exec_cb(void *obj, int32_t v) {
-  lv_obj_t *dot = (lv_obj_t *)obj;
-  double rad = (double)v * 0.1 * 0.017453292519943295;  // deg -> rad
-  lv_coord_t w = lv_obj_get_width(dot), hh = lv_obj_get_height(dot);
-  lv_obj_set_pos(dot,
-    (lv_coord_t)(ORBIT_CX + ORBIT_RX * std::cos(rad)) - w / 2,
-    (lv_coord_t)(ORBIT_CY + ORBIT_RY * std::sin(rad)) - hh / 2);
-}
-}  // namespace
-
-lv_obj_t *tune_orbit_create(lv_obj_t *parent) {
-  lv_obj_t *dot = lv_obj_create(parent);
-  lv_obj_remove_style_all(dot);
-  lv_obj_set_size(dot, 12, 12);
-  lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(dot, color_accent_primary, 0);   // the lamp (amber)
-  lv_obj_set_style_bg_opa(dot, LV_OPA_60, 0);
-  // The bloom: a wide, low-opacity amber shadow = the porch lamp's glow.
-  lv_obj_set_style_shadow_color(dot, color_accent_primary, 0);
-  lv_obj_set_style_shadow_width(dot, 26, 0);
-  lv_obj_set_style_shadow_opa(dot, LV_OPA_40, 0);
-  lv_obj_clear_flag(dot, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_move_background(dot);  // behind the cards: grazes the panel, never text
-  lv_anim_t a;
-  lv_anim_init(&a);
-  lv_anim_set_var(&a, dot);
-  lv_anim_set_exec_cb(&a, tune_orbit_exec_cb);
-  lv_anim_set_values(&a, 0, 3600);
-  lv_anim_set_time(&a, 6000);                       // a calm 6s round
-  lv_anim_set_repeat_count(&a, LV_ANIM_REPEAT_INFINITE);
-  lv_anim_set_path_cb(&a, lv_anim_path_linear);     // linear angle: the wrap is invisible
-  lv_anim_start(&a);
-  return dot;
 }
 
 namespace {

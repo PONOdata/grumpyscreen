@@ -216,7 +216,6 @@ struct TuneHandles {
   lv_obj_t *back = nullptr, *standard = nullptr, *omega = nullptr;
   lv_obj_t *speed = nullptr, *speed_val = nullptr;
   lv_obj_t *cals[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};  // Bed Mesh/PA/Flow/Shaper/Z-Offset
-  lv_obj_t *orbit = nullptr;  // the Make Pono porch-lamp orbit (ambient, 60fps)
 };
 
 // Build the Tune screen into `parent`: the two calibrate tiers (Standard +

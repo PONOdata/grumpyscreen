@@ -373,7 +373,7 @@ int main(int argc, char **argv) {
     spec.decimals = 3;
     np.open(spec, [](double) {});
   } else if (screen == "busy") {
-    // Working overlay demo: scrim + comet spinner + status over the idle home.
+    // Working overlay demo: scrim + elapsed clock (0:00) + status over the idle home.
     pono::build_home(lv_scr_act(), pono::demo_home_idle_model());
     pono::busy_show("Homing all axes");
   } else if (screen == "fans_drag") {

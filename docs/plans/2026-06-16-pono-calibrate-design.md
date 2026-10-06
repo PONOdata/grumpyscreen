@@ -45,7 +45,7 @@ the operator still knows what it is: `FULL CALIBRATION`.
    the UI is made to accept both "Make Pono X/N" and "Full Cal X/N" so the macro
    can be renamed later with no hard lockstep.
 
-2. **Orbit (60fps)** - an amber porch-lamp light orbiting the options cluster on
+2. **Orbit (60fps), removed 2026-10-05 at Jack's request** - an amber porch-lamp light orbiting the options cluster on
    the Tune screen. Continuous instrument motion (pono-design allows it, like the
    radar sweep), eased with personality, an unbroken loop. Built frameless: an
    `lv_anim` driving angle -> (x,y) on a small amber glow, so there is no
