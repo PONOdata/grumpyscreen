@@ -815,8 +815,8 @@ void build_filament(lv_obj_t *parent, FilamentHandles *h) {
   lv_obj_t *cd = tap_btn(parent, 360, 52, 108, 44, "Off", font_caption, color_text_secondary);
   if (h) h->cooldown = cd;
 
-  // Load length: slider + live mm readout (used by Load; Extrude/Retract keep
-  // their fixed 25mm purge).
+  // Load length: slider + live mm readout (used by Load; Purge is a fixed 20mm,
+  // Retract a fixed 25mm).
   tag(parent, "LOAD LENGTH", color_text_tertiary, 12, 106);
   lv_obj_t *lval = lbl(parent, "200 mm", font_num_small, color_accent_secondary, 0, 0);
   lv_obj_align(lval, LV_ALIGN_TOP_RIGHT, -14, 104);
@@ -840,10 +840,10 @@ void build_filament(lv_obj_t *parent, FilamentHandles *h) {
   lv_obj_t *ul = tap_btn(parent, 244, 152, 224, 52, LV_SYMBOL_UP "  Unload", ms, color_text_primary);
   if (h) { h->load = ld; h->unload = ul; }
 
-  // extrude / retract
-  lv_obj_t *ex = tap_btn(parent, 12, 212, 224, 44, "Extrude 25", font_body, color_text_primary);
+  // purge (PONO_PURGE: heats, purges 20mm over the chute, wipes) / retract
+  lv_obj_t *pg = tap_btn(parent, 12, 212, 224, 44, "Purge 20", font_body, color_text_primary);
   lv_obj_t *rt = tap_btn(parent, 244, 212, 224, 44, "Retract 25", font_body, color_text_primary);
-  if (h) { h->extrude = ex; h->retract = rt; }
+  if (h) { h->purge = pg; h->retract = rt; }
 }
 
 // one temperature column (nozzle or bed): current, target, 3 presets, Off.

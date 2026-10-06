@@ -166,7 +166,7 @@ void build_move(lv_obj_t *parent, MoveHandles *h = nullptr);
 
 struct FilamentHandles {
   lv_obj_t *back = nullptr, *temp = nullptr;
-  lv_obj_t *load = nullptr, *unload = nullptr, *extrude = nullptr, *retract = nullptr;
+  lv_obj_t *load = nullptr, *unload = nullptr, *purge = nullptr, *retract = nullptr;
   lv_obj_t *preset[3] = {nullptr, nullptr, nullptr};  // PLA / PETG / PA-CF: material select + preheat
   lv_obj_t *cooldown = nullptr;                       // "Off" segment: heaters off
   lv_obj_t *len_slider = nullptr, *len_val = nullptr; // load length slider + live "N mm" readout

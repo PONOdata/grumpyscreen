@@ -720,7 +720,7 @@ void MainPanel::create_pono_screens() {
     move_h_.back, move_h_.xplus, move_h_.xminus, move_h_.yplus, move_h_.yminus,
     move_h_.zplus, move_h_.zminus, move_h_.home_xy, move_h_.home_all, move_h_.motors_off,
     move_h_.step[0], move_h_.step[1], move_h_.step[2], move_h_.step[3],
-    fil_h_.back, fil_h_.load, fil_h_.unload, fil_h_.extrude, fil_h_.retract, fil_h_.temp,
+    fil_h_.back, fil_h_.load, fil_h_.unload, fil_h_.purge, fil_h_.retract, fil_h_.temp,
     fil_h_.preset[0], fil_h_.preset[1], fil_h_.preset[2], fil_h_.cooldown,
     temp_h_.back, temp_h_.nz_preset[0], temp_h_.nz_preset[1], temp_h_.nz_preset[2], temp_h_.nz_off,
     temp_h_.bd_preset[0], temp_h_.bd_preset[1], temp_h_.bd_preset[2], temp_h_.bd_off,
@@ -1101,13 +1101,14 @@ void MainPanel::_sub_tap(lv_event_t *e) {
   static const int kMinExtrudeTemp = 170;          // Klipper min_extrude_temp floor
   if (t == fl.load)    { pono::busy_show(fmt::format("Loading {}mm at {}C", s->fil_len_, kFilTemp[s->fil_mat_]).c_str()); s->ws.gcode_script(fmt::format("LOAD_FILAMENT EXTRUDER_TEMP={} LENGTH={}", kFilTemp[s->fil_mat_], s->fil_len_), [s](json &) { std::lock_guard<std::mutex> lk(s->lv_lock); s->hide_busy_overlay(); }); return; }
   if (t == fl.unload)  { pono::busy_show(fmt::format("Unloading at {}C", kFilTemp[s->fil_mat_]).c_str()); s->ws.gcode_script(fmt::format("UNLOAD_FILAMENT EXTRUDER_TEMP={}", kFilTemp[s->fil_mat_]), [s](json &) { std::lock_guard<std::mutex> lk(s->lv_lock); s->hide_busy_overlay(); }); return; }
-  // Extrude/Retract are raw G1 E with no temperature of their own: gate on a hot
-  // nozzle so a stray tap can't grind cold filament / strip the drive gear, and
-  // show that it is running (the move takes several seconds).
-  if (t == fl.extrude) {
-    if (s->home_nozzle_ < kMinExtrudeTemp) { s->confirm(fmt::format("Heat the nozzle to at least {}C before extruding.", kMinExtrudeTemp).c_str(), []{}); return; }
-    pono::busy_show("Extruding 25mm");
-    s->ws.gcode_script("M83\nG1 E25 F300", [s](json &) { std::lock_guard<std::mutex> lk(s->lv_lock); s->hide_busy_overlay(); });
+  // Purge runs PONO_PURGE, which heats to the material temp itself, so it has no
+  // cold gate. Retract is a raw G1 E with no temperature of its own: gate on a
+  // hot nozzle so a stray tap can't grind cold filament / strip the drive gear,
+  // and show that it is running (the move takes several seconds).
+  if (t == fl.purge) {
+    const int T = kFilTemp[s->fil_mat_];
+    pono::busy_show(fmt::format("Purging 20mm at {}C", T).c_str());
+    s->ws.gcode_script(fmt::format("PONO_PURGE EXTRUDER_TEMP={} LENGTH=20", T), [s](json &) { std::lock_guard<std::mutex> lk(s->lv_lock); s->hide_busy_overlay(); });
     return;
   }
   if (t == fl.retract) {
