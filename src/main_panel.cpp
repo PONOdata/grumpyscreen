@@ -4,11 +4,13 @@
 #include "logger.h"
 #include "pono_theme.h"  // Phase A.4: surface + accent tokens for tab UI
 #include "pono_anim.h"   // busy_show/busy_hide working overlay for blocking waits
+#include "pono_slider.h"
 #include "utils.h"       // KUtils::interface_ip for the System screen
 #include <fstream>       // /etc/pono-version, /proc/uptime for the System screen
 
 #include <string>
 #include <cstdint>
+#include <cmath>         // std::isnan, std::floor: numpad entry onto a slider
 #include <cstdio>        // popen: version check against the firmware host
 #include <cstdlib>       // system: run update-pono-print from the Install chip
 #include <thread>        // network work off the LVGL thread (labels updated under lv_lock)
@@ -408,6 +410,8 @@ void MainPanel::consume(json &j) {
           if (fv.is_null()) continue;
           int fpct = (int)(fv.template get<double>() * 100.0 + 0.5);
           if (fpct == rend_fan_[i]) continue;   // unchanged -> no repaint this tick
+          // freshly committed slider: ignore the stale echo, leave rend_fan_ so a later delta repaints
+          if (i < 3 && slider_held(i, fpct)) continue;
           rend_fan_[i] = fpct;
           if (fan_h_.val[i])    lv_label_set_text(fan_h_.val[i], fmt::format("{}%", fpct).c_str());
           // don't fight a finger mid-drag: skip the programmatic set while the slider is held
@@ -744,11 +748,23 @@ void MainPanel::create_pono_screens() {
     settings_h_.speed_minus, settings_h_.speed_plus, settings_h_.reset,
   };
   for (lv_obj_t *t : taps) if (t) lv_obj_add_event_cb(t, &MainPanel::_sub_tap, LV_EVENT_CLICKED, this);
-  for (int i = 0; i < 3; i++)
-    if (fan_h_.slider[i]) lv_obj_add_event_cb(fan_h_.slider[i], &MainPanel::_fan_slider_cb, LV_EVENT_RELEASED, this);
-  if (tune_h_.speed)      lv_obj_add_event_cb(tune_h_.speed, &MainPanel::_fan_slider_cb, LV_EVENT_RELEASED, this);
-  // Load-length slider: VALUE_CHANGED so the mm readout tracks the finger live.
-  if (fil_h_.len_slider)  lv_obj_add_event_cb(fil_h_.len_slider, &MainPanel::_fan_slider_cb, LV_EVENT_VALUE_CHANGED, this);
+  // Fine-drag sliders: VALUE_CHANGED shows live, RELEASED commits, a tap opens the numpad.
+  {
+    struct { lv_obj_t *sl; const char *unit; } fine[5] = {
+      { tune_h_.speed, "%" }, { fil_h_.len_slider, "mm" },
+      { fan_h_.slider[0], "%" }, { fan_h_.slider[1], "%" }, { fan_h_.slider[2], "%" },
+    };
+    for (auto &f : fine) {
+      if (!f.sl) continue;
+      pono::fine_slider_attach(f.sl, f.unit);
+      lv_obj_add_event_cb(f.sl, &MainPanel::_fan_slider_cb, LV_EVENT_VALUE_CHANGED, this);
+      lv_obj_add_event_cb(f.sl, &MainPanel::_fan_slider_cb, LV_EVENT_RELEASED, this);
+      lv_obj_add_event_cb(f.sl, &MainPanel::_fan_slider_cb, LV_EVENT_SHORT_CLICKED, this);
+    }
+    lv_obj_t *readouts[5] = { tune_h_.speed_val, fil_h_.len_val, fan_h_.val[0], fan_h_.val[1], fan_h_.val[2] };
+    for (lv_obj_t *r : readouts)
+      if (r) lv_obj_add_event_cb(r, &MainPanel::_slider_readout_cb, LV_EVENT_CLICKED, this);
+  }
   pono::seg_highlight(fil_h_.preset, 3, fil_mat_);  // PA-CF preselected: this is a PA printer
   pono::seg_highlight(settings_h_.zstep, 3, zstep_idx_);
 
@@ -1128,7 +1144,7 @@ void MainPanel::_sub_tap(lv_event_t *e) {
   if (t == fl.cooldown)  { s->ws.gcode_script("TURN_OFF_HEATERS"); return; }
   // Tap the nozzle readout to type an exact target (the presets stay; this is
   // the manual override). Mirrors the Temps keypad, clamped to the same cap.
-  if (t == fl.temp) { s->numpad.set_callback([s](double v){ int n=(int)(v+0.5); n=n<0?0:(n>300?300:n); s->ws.gcode_script(fmt::format("SET_HEATER_TEMPERATURE HEATER=extruder TARGET={}", n)); }); s->numpad.foreground_reset(); return; }
+  if (t == fl.temp) { s->numpad.open(NumpadSpec{"NOZZLE TARGET", "C", (double)s->home_nozzle_set_, 0, 300, 0}, [s](double v){ int n=(int)(v+0.5); n=n<0?0:(n>300?300:n); s->ws.gcode_script(fmt::format("SET_HEATER_TEMPERATURE HEATER=extruder TARGET={}", n)); }); return; }
   // Temps
   if (t == tp.nz_preset[0]) { s->ws.gcode_script("SET_HEATER_TEMPERATURE HEATER=extruder TARGET=220"); return; }
   if (t == tp.nz_preset[1]) { s->ws.gcode_script("SET_HEATER_TEMPERATURE HEATER=extruder TARGET=240"); return; }
@@ -1149,8 +1165,8 @@ void MainPanel::_sub_tap(lv_event_t *e) {
     if (t == tp.bd_plus)  { s->ws.gcode_script(fmt::format("SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET={}", clampi(s->home_bed_set_ + 5, 0, 120))); return; }
   }
   // Temps keypad: tap the big number to type an exact target (clamped to heater limits)
-  if (t == tp.nz_cur) { s->numpad.set_callback([s](double v){ int n=(int)(v+0.5); n=n<0?0:(n>300?300:n); s->ws.gcode_script(fmt::format("SET_HEATER_TEMPERATURE HEATER=extruder TARGET={}",  n)); }); s->numpad.foreground_reset(); return; }
-  if (t == tp.bd_cur) { s->numpad.set_callback([s](double v){ int n=(int)(v+0.5); n=n<0?0:(n>120?120:n); s->ws.gcode_script(fmt::format("SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET={}", n)); }); s->numpad.foreground_reset(); return; }
+  if (t == tp.nz_cur) { s->numpad.open(NumpadSpec{"NOZZLE TARGET", "C", (double)s->home_nozzle_set_, 0, 300, 0}, [s](double v){ int n=(int)(v+0.5); n=n<0?0:(n>300?300:n); s->ws.gcode_script(fmt::format("SET_HEATER_TEMPERATURE HEATER=extruder TARGET={}",  n)); }); return; }
+  if (t == tp.bd_cur) { s->numpad.open(NumpadSpec{"BED TARGET", "C", (double)s->home_bed_set_, 0, 120, 0}, [s](double v){ int n=(int)(v+0.5); n=n<0?0:(n>120?120:n); s->ws.gcode_script(fmt::format("SET_HEATER_TEMPERATURE HEATER=heater_bed TARGET={}", n)); }); return; }
   // Fans (quick)
   // Tune
   // Safety interlock (the 2026-06-11 Full Cal incident, audit 2026-06-15): never
@@ -1305,11 +1321,12 @@ void MainPanel::_sub_tap(lv_event_t *e) {
   // error, so it stays a pure offset there. The keypad clamps to +/-2 mm,
   // because with MOVE=1 a mistyped value is a move, not a setting.
   pono::SettingsHandles &se = s->settings_h_;
-  if (t == se.speed) { s->numpad.set_callback([s](double v){ int sp=(int)(v+0.5); sp=sp<10?10:(sp>300?300:sp); s->tune_speed_ask_=sp; s->ws.gcode_script(fmt::format("M220 S{}", sp)); s->tune_request(TUNE_SPEED, fmt::format("{}%", sp)); }); s->numpad.foreground_reset(); return; }
-  if (t == se.flow)  { s->numpad.set_callback([s](double v){ int fl=(int)(v+0.5); fl=fl<50?50:(fl>200?200:fl); s->ws.gcode_script(fmt::format("M221 S{}", fl)); s->tune_request(TUNE_FLOW, fmt::format("{}%", fl)); }); s->numpad.foreground_reset(); return; }
-  if (t == se.pa)    { s->numpad.set_callback([s](double v){ double a=v<0?0:(v>1.0?1.0:v); s->ws.gcode_script(fmt::format("SET_PRESSURE_ADVANCE ADVANCE={:.3f}", a)); s->tune_request(TUNE_PA, fmt::format("{:.3f}", a)); }); s->numpad.foreground_reset(); return; }
-  if (t == se.zoff)  { s->numpad.set_callback([s](double v){ double z=v<-2.0?-2.0:(v>2.0?2.0:v); s->tune_zoff_ask_=z; s->ws.gcode_script(fmt::format("SET_GCODE_OFFSET Z={:.3f} MOVE={}", z, s->z_move())); s->tune_request(TUNE_ZOFF, fmt::format("{:.3f}", z)); }); s->numpad.foreground_reset(); return; }
-  if (t == se.fan)   { s->numpad.set_callback([s](double v){ int p=(int)(v+0.5); p = p<0?0:(p>100?100:p); s->ws.gcode_script(fmt::format("M106 S{}", p*255/100)); s->tune_request(TUNE_FAN, fmt::format("{}%", p)); }); s->numpad.foreground_reset(); return; }
+  auto shown_value = [](lv_obj_t *o) -> double { if (!o) return NAN; const char *txt = nullptr; if (lv_obj_check_type(o, &lv_label_class)) { txt = lv_label_get_text(o); } else { lv_obj_t *c = lv_obj_get_child(o, 0); if (c && lv_obj_check_type(c, &lv_label_class)) txt = lv_label_get_text(c); } if (!txt || !*txt) return NAN; char *end = nullptr; double v = strtod(txt, &end); return end == txt ? NAN : v; };
+  if (t == se.speed) { s->numpad.open(NumpadSpec{"PRINT SPEED", "%", (double)s->tune_speed_ask_, 10, 300, 0}, [s](double v){ int sp=(int)(v+0.5); sp=sp<10?10:(sp>300?300:sp); s->tune_speed_ask_=sp; s->ws.gcode_script(fmt::format("M220 S{}", sp)); s->tune_request(TUNE_SPEED, fmt::format("{}%", sp)); }); return; }
+  if (t == se.flow)  { s->numpad.open(NumpadSpec{"FLOW", "%", shown_value(t), 50, 200, 0}, [s](double v){ int fl=(int)(v+0.5); fl=fl<50?50:(fl>200?200:fl); s->ws.gcode_script(fmt::format("M221 S{}", fl)); s->tune_request(TUNE_FLOW, fmt::format("{}%", fl)); }); return; }
+  if (t == se.pa)    { s->numpad.open(NumpadSpec{"PRESSURE ADVANCE", "", shown_value(t), 0, 1.0, 3}, [s](double v){ double a=v<0?0:(v>1.0?1.0:v); s->ws.gcode_script(fmt::format("SET_PRESSURE_ADVANCE ADVANCE={:.3f}", a)); s->tune_request(TUNE_PA, fmt::format("{:.3f}", a)); }); return; }
+  if (t == se.zoff)  { s->numpad.open(NumpadSpec{"Z OFFSET", "mm", s->tune_zoff_ask_, -2, 2, 3}, [s](double v){ double z=v<-2.0?-2.0:(v>2.0?2.0:v); s->tune_zoff_ask_=z; s->ws.gcode_script(fmt::format("SET_GCODE_OFFSET Z={:.3f} MOVE={}", z, s->z_move())); s->tune_request(TUNE_ZOFF, fmt::format("{:.3f}", z)); }); return; }
+  if (t == se.fan)   { s->numpad.open(NumpadSpec{"PART FAN", "%", shown_value(t), 0, 100, 0}, [s](double v){ int p=(int)(v+0.5); p = p<0?0:(p>100?100:p); s->ws.gcode_script(fmt::format("M106 S{}", p*255/100)); s->tune_request(TUNE_FAN, fmt::format("{}%", p)); }); return; }
   if (t == se.speed_p[0]) { s->tune_speed_ask_ = 50;  s->ws.gcode_script("M220 S50");  s->tune_request(TUNE_SPEED, "50%");  return; }
   if (t == se.speed_p[1]) { s->tune_speed_ask_ = 100; s->ws.gcode_script("M220 S100"); s->tune_request(TUNE_SPEED, "100%"); return; }
   if (t == se.speed_p[2]) { s->tune_speed_ask_ = 150; s->ws.gcode_script("M220 S150"); s->tune_request(TUNE_SPEED, "150%"); return; }
@@ -1384,8 +1401,9 @@ void MainPanel::read_tune(json &j, const char *root) {
       int sp = pct(v.template get<double>());
       tune_speed_ = sp;
       got(TUNE_SPEED, fmt::format("{}%", sp));
-      // The Tune screen's speed slider mirrors the same factor, unless a finger is on it.
-      if (tune_h_.speed && !lv_obj_has_state(tune_h_.speed, LV_STATE_PRESSED)) {
+      // The Tune screen's speed slider mirrors the same factor, unless a finger is on it
+      // or a fresh commit is still waiting for its readback.
+      if (tune_h_.speed && !lv_obj_has_state(tune_h_.speed, LV_STATE_PRESSED) && !slider_held(3, sp)) {
         lv_slider_set_value(tune_h_.speed, sp, LV_ANIM_OFF);
         if (tune_h_.speed_val) lv_label_set_text(tune_h_.speed_val, fmt::format("{}%", sp).c_str());
       }
@@ -1460,32 +1478,103 @@ void MainPanel::_tune_settle(lv_timer_t *t) {
   s->tune_reset_refresh();
 }
 
+// Runs under lv_lock (LVGL event loop): never lock here.
 void MainPanel::_fan_slider_cb(lv_event_t *e) {
   auto *s = static_cast<MainPanel *>(lv_event_get_user_data(e));
   lv_obj_t *t = lv_event_get_target(e);
-  int v = lv_slider_get_value(t);
-  if (t == s->fil_h_.len_slider) {             // load length: state + readout only, no gcode
-    s->fil_len_ = v;
-    if (s->fil_h_.len_val) lv_label_set_text(s->fil_h_.len_val, fmt::format("{} mm", v).c_str());
+  switch (lv_event_get_code(e)) {
+    case LV_EVENT_VALUE_CHANGED:
+      s->slider_show(t, lv_slider_get_value(t));
+      break;
+    case LV_EVENT_RELEASED: {
+      int v = lv_slider_get_value(t);
+      s->slider_show(t, v);
+      s->slider_commit(t, v);
+      break;
+    }
+    case LV_EVENT_SHORT_CLICKED:
+      s->slider_numpad(t);
+      break;
+    default:
+      break;
+  }
+}
+
+// Readout text only (plus fil_len_ for the load length); no gcode.
+void MainPanel::slider_show(lv_obj_t *t, int v) {
+  if (t == fil_h_.len_slider) {                // load length: state + readout only, no gcode
+    fil_len_ = v;
+    if (fil_h_.len_val) lv_label_set_text(fil_h_.len_val, fmt::format("{} mm", v).c_str());
     return;
   }
-  if (t == s->tune_h_.speed) {                 // Expert Tune feedrate (M220), not a fan
+  if (t == tune_h_.speed) {
+    if (tune_h_.speed_val) lv_label_set_text(tune_h_.speed_val, fmt::format("{}%", v).c_str());
+    return;
+  }
+  for (int i = 0; i < 3; i++)
+    if (t == fan_h_.slider[i] && fan_h_.val[i])
+      lv_label_set_text(fan_h_.val[i], fmt::format("{}%", v).c_str());
+}
+
+// Send the value to the machine and arm the status-sync hold for it.
+void MainPanel::slider_commit(lv_obj_t *t, int v) {
+  if (t == fil_h_.len_slider) return;          // load length is used by Load, nothing to send
+  if (t == tune_h_.speed) {                    // Expert Tune feedrate (M220), not a fan
     // Recorded like every other speed writer, so a -/+ step soon after a drag
     // starts from the dragged value, not from an ask still pending before it.
-    s->tune_speed_ask_ = v;
-    s->ws.gcode_script(fmt::format("M220 S{}", v));
-    s->tune_request(TUNE_SPEED, fmt::format("{}%", v));
-    if (s->tune_h_.speed_val) lv_label_set_text(s->tune_h_.speed_val, fmt::format("{}%", v).c_str());
+    tune_speed_ask_ = v;
+    ws.gcode_script(fmt::format("M220 S{}", v));
+    tune_request(TUNE_SPEED, fmt::format("{}%", v));
+    slider_commit_tick_[3] = lv_tick_get();
+    slider_commit_val_[3] = v;
     return;
   }
   // Per-fan sliders: 0 part-cooling (M106), 1 model fan, 2 box fan (generics).
-  if (t == s->fan_h_.slider[0])       s->ws.gcode_script(fmt::format("M106 S{}", (int)(v * 255 / 100)));
-  else if (t == s->fan_h_.slider[1])  s->ws.gcode_script(fmt::format("SET_FAN_SPEED FAN=model_helper_fan SPEED={:.2f}", v / 100.0));
-  else if (t == s->fan_h_.slider[2])  s->ws.gcode_script(fmt::format("SET_FAN_SPEED FAN=box_fan SPEED={:.2f}", v / 100.0));
+  int k;
+  if (t == fan_h_.slider[0])       { k = 0; ws.gcode_script(fmt::format("M106 S{}", (int)(v * 255 / 100))); }
+  else if (t == fan_h_.slider[1])  { k = 1; ws.gcode_script(fmt::format("SET_FAN_SPEED FAN=model_helper_fan SPEED={:.2f}", v / 100.0)); }
+  else if (t == fan_h_.slider[2])  { k = 2; ws.gcode_script(fmt::format("SET_FAN_SPEED FAN=box_fan SPEED={:.2f}", v / 100.0)); }
   else return;
-  for (int i = 0; i < 3; i++)
-    if (t == s->fan_h_.slider[i] && s->fan_h_.val[i])
-      lv_label_set_text(s->fan_h_.val[i], fmt::format("{}%", v).c_str());
+  slider_commit_tick_[k] = lv_tick_get();
+  slider_commit_val_[k] = v;
+}
+
+// Exact entry: open the numpad on the slider's value and range.
+void MainPanel::slider_numpad(lv_obj_t *t) {
+  const char *title = nullptr, *unit = "%";
+  if (t == tune_h_.speed)               title = "PRINT SPEED";
+  else if (t == fil_h_.len_slider)      { title = "LOAD LENGTH"; unit = "mm"; }
+  else if (t == fan_h_.slider[0])       title = "PART COOLING";
+  else if (t == fan_h_.slider[1])       title = "MODEL FAN";
+  else if (t == fan_h_.slider[2])       title = "BOX FAN";
+  else return;
+  NumpadSpec spec{ title, unit, (double)lv_slider_get_value(t),
+                   (double)lv_slider_get_min_value(t), (double)lv_slider_get_max_value(t), 0 };
+  numpad.open(spec, [this, t](double d) {
+    if (std::isnan(d)) return;
+    int lo = lv_slider_get_min_value(t), hi = lv_slider_get_max_value(t);
+    // clamp before the int cast so it cannot overflow; same result as round then clamp
+    double c = d < lo ? (double)lo : (d > hi ? (double)hi : d);
+    int n = (int)std::floor(c + 0.5);
+    if (n < lo) n = lo;
+    if (n > hi) n = hi;
+    lv_slider_set_value(t, n, LV_ANIM_OFF);
+    slider_show(t, n);
+    slider_commit(t, n);
+  });
+}
+
+// Tapped readout field -> numpad for the slider it reports.
+void MainPanel::_slider_readout_cb(lv_event_t *e) {
+  auto *s = static_cast<MainPanel *>(lv_event_get_user_data(e));
+  lv_obj_t *r = lv_event_get_current_target(e);
+  lv_obj_t *t = nullptr;
+  if (r == s->tune_h_.speed_val)      t = s->tune_h_.speed;
+  else if (r == s->fil_h_.len_val)    t = s->fil_h_.len_slider;
+  else
+    for (int i = 0; i < 3; i++)
+      if (r == s->fan_h_.val[i]) t = s->fan_h_.slider[i];
+  if (t) s->slider_numpad(t);
 }
 
 void MainPanel::_file_row_cb(lv_event_t *e) {

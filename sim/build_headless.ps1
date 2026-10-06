@@ -81,6 +81,8 @@ $exe = Join-Path $sim 'pono-headless.exe'
   (Join-Path $root 'src\pono_home.cpp') `
   (Join-Path $root 'src\pono_anim.cpp') `
   (Join-Path $root 'src\prompt_layout.cpp') `
+  (Join-Path $root 'src\numpad.cpp') `
+  (Join-Path $root 'src\pono_slider.cpp') `
   $fontobj $animobj $lib -o $exe -lm
 if ($LASTEXITCODE -ne 0) { throw "link failed ($LASTEXITCODE)" }
 Write-Host "      built $exe"

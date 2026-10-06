@@ -18,6 +18,8 @@
 #include "pono_home.h"
 #include "pono_anim.h"
 #include "prompt_layout.h"
+#include "pono_slider.h"
+#include "numpad.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -40,6 +42,24 @@ extern "C" uint32_t custom_tick_get(void) { return g_tick_ms; }
 // linker with no-op stubs - the cockpit needs no filesystem nor PNG decode.
 extern "C" void lv_fs_stdio_init(void) {}
 extern "C" void lv_png_init(void) {}
+
+// Scripted finger for the "fans_drag" screen only. The pointer indev that
+// reads it is registered by that screen; every other screen has no indev.
+struct SimTouch {
+  lv_coord_t x;
+  lv_coord_t y;
+  bool pressed;
+};
+static SimTouch g_sim_touch = {0, 0, false};
+static lv_obj_t *g_sim_drag_slider = NULL;
+static lv_point_t g_sim_drag_from = {0, 0};
+
+static void sim_touch_read(lv_indev_drv_t *drv, lv_indev_data_t *data) {
+  (void)drv;
+  data->point.x = g_sim_touch.x;
+  data->point.y = g_sim_touch.y;
+  data->state = g_sim_touch.pressed ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+}
 
 static void flush_cb(lv_disp_drv_t *drv, const lv_area_t *area, lv_color_t *color_p) {
   for (int y = area->y1; y <= area->y2; y++) {
@@ -332,10 +352,48 @@ int main(int argc, char **argv) {
     pono::omega_status_show(screen == "omega_long"
       ? "OMEGA 21/29: Overhang 60 degrees, second pass -> OK (20 OK, 1 retry)"
       : "OMEGA 8/29: Bridging -> OK (8 OK)");
+  } else if (screen == "numpad") {
+    static Numpad np(lv_layer_top());
+    NumpadSpec spec;
+    spec.title = "NOZZLE TARGET";
+    spec.unit = "C";
+    spec.value = 220;
+    spec.min = 0;
+    spec.max = 300;
+    spec.decimals = 0;
+    np.open(spec, [](double) {});
+  } else if (screen == "numpad_neg") {
+    static Numpad np(lv_layer_top());
+    NumpadSpec spec;
+    spec.title = "Z OFFSET";
+    spec.unit = "mm";
+    spec.value = -0.125;
+    spec.min = -2;
+    spec.max = 2;
+    spec.decimals = 3;
+    np.open(spec, [](double) {});
   } else if (screen == "busy") {
     // Working overlay demo: scrim + elapsed clock (0:00) + status over the idle home.
     pono::build_home(lv_scr_act(), pono::demo_home_idle_model());
     pono::busy_show("Homing all axes");
+  } else if (screen == "fans_drag") {
+    // The fans screen with the fine-drag slider on PART COOLING, driven by
+    // the scripted finger in the advance loop below.
+    static pono::FansHandles fdh;
+    pono::build_fans(lv_scr_act(), &fdh);
+    int demo[5] = {65, 100, 40, 38, 100};
+    for (int i = 0; i < 5; i++) {
+      char b[8]; snprintf(b, sizeof b, "%d%%", demo[i]);
+      if (fdh.val[i]) lv_label_set_text(fdh.val[i], b);
+      if (fdh.slider[i]) lv_slider_set_value(fdh.slider[i], demo[i], LV_ANIM_OFF);
+    }
+    pono::fine_slider_attach(fdh.slider[0], "%");
+    g_sim_drag_slider = fdh.slider[0];
+    static lv_indev_drv_t idrv;
+    lv_indev_drv_init(&idrv);
+    idrv.type = LV_INDEV_TYPE_POINTER;
+    idrv.read_cb = sim_touch_read;
+    lv_indev_drv_register(&idrv);
   } else if (screen == "makepono") {
     // Make Pono narration box: the honest NOW/NEXT logbook + a true bar + STOP.
     pono::build_home(lv_scr_act(), pono::demo_home_idle_model());
@@ -421,6 +479,31 @@ int main(int argc, char **argv) {
   // advance time so animations settle (ocean drift, glow pulse)
   for (int t = 0; t < advance_ms; t += 16) {
     g_tick_ms += 16;
+    if (g_sim_drag_slider) {
+      // fans_drag: press the knob at frame 2, then over 20 frames move right
+      // about 60 px while rising about 80 px, and stay pressed.
+      int f = t / 16;
+      if (f == 2) {
+        lv_obj_update_layout(g_sim_drag_slider);
+        lv_area_t a;
+        lv_obj_get_coords(g_sim_drag_slider, &a);
+        int32_t mn = lv_slider_get_min_value(g_sim_drag_slider);
+        int32_t mx = lv_slider_get_max_value(g_sim_drag_slider);
+        int32_t v = lv_slider_get_value(g_sim_drag_slider);
+        lv_coord_t w = lv_area_get_width(&a);
+        lv_coord_t kx = a.x1;
+        if (mx > mn) kx = (lv_coord_t)(a.x1 + (long long)(w - 1) * (v - mn) / (mx - mn));
+        g_sim_drag_from.x = kx;
+        g_sim_drag_from.y = (lv_coord_t)((a.y1 + a.y2) / 2);
+        g_sim_touch.x = g_sim_drag_from.x;
+        g_sim_touch.y = g_sim_drag_from.y;
+        g_sim_touch.pressed = true;
+      } else if (f > 2 && f <= 22) {
+        int k = f - 2;
+        g_sim_touch.x = (lv_coord_t)(g_sim_drag_from.x + 60 * k / 20);
+        g_sim_touch.y = (lv_coord_t)(g_sim_drag_from.y - 80 * k / 20);
+      }
+    }
     lv_timer_handler();
   }
 
