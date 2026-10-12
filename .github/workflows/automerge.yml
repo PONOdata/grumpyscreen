@@ -11,12 +11,11 @@ concurrency:
 jobs:
   enable:
     if: ${{ github.event.pull_request.draft == false }}
-    # GitHub-hosted, because this repo is PUBLIC. Hosted minutes cost nothing
-    # on a public repo, and the org's self-hosted runner group does not serve
-    # public repos, so the move to the pono-runner pool in #61 left this job
-    # queued on every PR from 2026-09-12: #64 and #65 sat green and unmerged
-    # until merged by hand. pono-kalico, also public, runs it on ubuntu-latest.
-    runs-on: ubuntu-latest
+    # Self-hosted, on the org's Default runner group, which serves public
+    # repos (the node-one runners sit in it; the pono-runner pool does not, so
+    # that label would queue forever here, as #61 found on 2026-09-12). Moved
+    # off GitHub-hosted on 2026-10-11 by Jack's order: every job self-hosted.
+    runs-on: [self-hosted, X64, Linux]
     timeout-minutes: 8
     steps:
       # A merge attributed to GITHUB_TOKEN creates no workflow runs, so an automerged

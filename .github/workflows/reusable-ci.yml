@@ -134,6 +134,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: ${{ inputs.checkout_submodules }}
+      - name: clean submodule build residue
+        # Self-hosted runners keep the workspace between jobs, and checkout
+        # cleans the superproject only. Objects a previous job built in a
+        # submodule for another target make ld fail with "file in wrong format".
+        run: git submodule foreach --recursive git clean -ffdx
       - name: test
         env:
           CMD: ${{ inputs.test_cmd }}
@@ -155,6 +160,11 @@ jobs:
         with:
           persist-credentials: false
           submodules: ${{ inputs.checkout_submodules }}
+      - name: clean submodule build residue
+        # Self-hosted runners keep the workspace between jobs, and checkout
+        # cleans the superproject only. Objects a previous job built in a
+        # submodule for another target make ld fail with "file in wrong format".
+        run: git submodule foreach --recursive git clean -ffdx
       - name: build
         env:
           CMD: ${{ inputs.build_cmd }}
