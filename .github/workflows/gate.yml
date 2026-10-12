@@ -13,7 +13,7 @@ jobs:
     # in step with gatekeeper by hand, because no tag reaches it.
     uses: ./.github/workflows/reusable-ci.yml
     with:
-      runner_labels: '["ubuntu-latest"]'
+      runner_labels: '["self-hosted","X64","Linux","node-one-docker"]'
       # All four were blank, and the vendored copy above used to treat a blank
       # command as a pass. It no longer does, so each gate is now either armed
       # or named here with a reason.
