@@ -65,7 +65,10 @@ CSRCS 			+= $(wildcard $(LVGL_DIR)/assets/pono/fonts/*.c)
 CSRCS 			+= $(wildcard $(LVGL_DIR)/assets/pono/anim/*.c)
 
 ifdef GUPPYSCREEN_VERSION
-SHORT_GUPPYSCREEN_VERSION := $(shell printf "%s" "$(GUPPYSCREEN_VERSION)" | cut -c1-7)
+# A full git sha (build.sh, branch.yml) shortens to 7 characters. Anything else
+# passes whole: the image build passes DISTRO_VERSION, and cutting
+# 0.1.21-alpha.289 at 7 left "0.1.21-", which hid which alpha was running.
+SHORT_GUPPYSCREEN_VERSION := $(shell printf "%s" "$(GUPPYSCREEN_VERSION)" | sed -E 's/^([0-9a-f]{7})[0-9a-f]{33}$$/\1/')
 DEFINES			+= -D GUPPYSCREEN_VERSION=\"$(SHORT_GUPPYSCREEN_VERSION)\"
 else
 DEFINES			+= -D GUPPYSCREEN_VERSION=\"unknown\"
