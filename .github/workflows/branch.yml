@@ -49,6 +49,13 @@ jobs:
       with:
         submodules: recursive
 
+    - name: clean submodule build residue
+      # Self-hosted runners keep the workspace between jobs. actions/checkout
+      # cleans the superproject, not the submodules, so libhv objects from the
+      # previous target (another arch, or the host) survive and ld fails with
+      # "file in wrong format". Hosted runners started empty and never saw this.
+      run: git submodule foreach --recursive git clean -ffdx
+
     - name: set guppyscreen version
       run: |
         echo "GUPPYSCREEN_BRANCH=${{ github.ref_name }}" >> $GITHUB_ENV
