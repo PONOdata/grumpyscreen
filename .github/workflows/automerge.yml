@@ -11,11 +11,9 @@ concurrency:
 jobs:
   enable:
     if: ${{ github.event.pull_request.draft == false }}
-    # Self-hosted, on the org's Default runner group, which serves public
-    # repos (the node-one runners sit in it; the pono-runner pool does not, so
-    # that label would queue forever here, as #61 found on 2026-09-12). Moved
-    # off GitHub-hosted on 2026-10-11 by Jack's order: every job self-hosted.
-    runs-on: [self-hosted, X64, Linux]
+    # GitHub-hosted. Since 2026-10-14 every self-hosted runner sits in the
+    # enterprise's private pool, which public repos cannot use (Jack's call).
+    runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
       # A merge attributed to GITHUB_TOKEN creates no workflow runs, so an automerged
