@@ -25,7 +25,7 @@ on:
     inputs:
       runner_labels:
         type: string
-        default: '["self-hosted","linux"]'
+        default: '["ubuntu-latest"]'
       lint_cmd:
         type: string
         default: ''
