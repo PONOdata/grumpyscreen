@@ -146,5 +146,7 @@ test:
 	$(BUILD_DIR)/test_cli
 	g++ -std=gnu++17 -O2 -Wall -Wextra -I./src tests/test_tune_reset.cpp -o $(BUILD_DIR)/test_tune_reset
 	$(BUILD_DIR)/test_tune_reset
+	g++ -std=gnu++17 -O2 -Wall -Wextra -I./src tests/test_jog_guard.cpp -o $(BUILD_DIR)/test_jog_guard
+	$(BUILD_DIR)/test_jog_guard
 
 -include			$(DEPS)
