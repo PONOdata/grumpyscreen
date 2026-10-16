@@ -6,7 +6,8 @@
 #include "cal_log_gate.h" // when the Make Pono / Full Cal logbook may cover the cockpit
 #include "pono_anim.h"   // busy_show/busy_hide working overlay for blocking waits
 #include "pono_slider.h"
-#include "utils.h"       // KUtils::interface_ip for the System screen
+#include "jog_guard.h"   // Move-screen jog: unhomed refusal and plain-word errors
+#include "utils.h"      // KUtils::interface_ip for the System screen
 #include <fstream>       // /etc/pono-version, /proc/uptime for the System screen
 
 #include <string>
@@ -1091,12 +1092,27 @@ void MainPanel::_sub_tap(lv_event_t *e) {
     if ((printing && is_motion) || (held && t == mv.motors_off)) return;
   }
   double st = s->move_step_;
-  if (t == mv.xplus)  { s->ws.gcode_script(fmt::format("G91\nG1 X{} F6000\nG90", st)); return; }
-  if (t == mv.xminus) { s->ws.gcode_script(fmt::format("G91\nG1 X-{} F6000\nG90", st)); return; }
-  if (t == mv.yplus)  { s->ws.gcode_script(fmt::format("G91\nG1 Y{} F6000\nG90", st)); return; }
-  if (t == mv.yminus) { s->ws.gcode_script(fmt::format("G91\nG1 Y-{} F6000\nG90", st)); return; }
-  if (t == mv.zplus)  { s->ws.gcode_script(fmt::format("G91\nG1 Z{} F600\nG90", st)); return; }
-  if (t == mv.zminus) { s->ws.gcode_script(fmt::format("G91\nG1 Z-{} F600\nG90", st)); return; }
+  // Jog feedback (jog_guard.h): an unhomed axis is refused here with a notice
+  // instead of dispatching a move Klipper refuses with only a console line,
+  // and a jog Klipper does refuse (out of range) says why on the glass.
+  auto jog = [s](char axis, double mm, int feed) {
+    std::string why = pono::jog_refusal(axis, s->move_homed_);
+    if (!why.empty()) { s->notice(why.c_str()); return; }
+    const char up = (char)std::toupper((unsigned char)axis);
+    s->ws.gcode_script(fmt::format("G91\nG1 {}{} F{}\nG90", up, mm, feed), [s](json &resp) {
+      if (!resp.contains("error")) return;
+      auto m = resp["/error/message"_json_pointer];
+      std::string txt = pono::jog_error_text(m.is_string() ? m.template get<std::string>() : std::string());
+      std::lock_guard<std::mutex> lk(s->lv_lock);
+      s->notice(txt.empty() ? "The printer refused that move." : txt.c_str());
+    });
+  };
+  if (t == mv.xplus)  { jog('x',  st, 6000); return; }
+  if (t == mv.xminus) { jog('x', -st, 6000); return; }
+  if (t == mv.yplus)  { jog('y',  st, 6000); return; }
+  if (t == mv.yminus) { jog('y', -st, 6000); return; }
+  if (t == mv.zplus)  { jog('z',  st, 600); return; }
+  if (t == mv.zminus) { jog('z', -st, 600); return; }
   if (t == mv.home_xy)    { pono::busy_show("Homing X / Y"); s->ws.gcode_script("G28 X Y", [s](json &) { std::lock_guard<std::mutex> lk(s->lv_lock); s->hide_busy_overlay(); }); return; }
   if (t == mv.home_all)   { pono::busy_show("Homing all axes"); s->ws.gcode_script("G28", [s](json &) { std::lock_guard<std::mutex> lk(s->lv_lock); s->hide_busy_overlay(); }); return; }
   if (t == mv.motors_off) { s->ws.gcode_script("M84"); return; }
