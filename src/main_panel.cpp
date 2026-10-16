@@ -3,6 +3,7 @@
 #include "lvgl/lvgl.h"
 #include "logger.h"
 #include "pono_theme.h"  // Phase A.4: surface + accent tokens for tab UI
+#include "cal_log_gate.h" // when the Make Pono / Full Cal logbook may cover the cockpit
 #include "pono_anim.h"   // busy_show/busy_hide working overlay for blocking waits
 #include "pono_slider.h"
 #include "jog_guard.h"   // Move-screen jog: unhomed refusal and plain-word errors
@@ -491,9 +492,10 @@ void MainPanel::sync_cal_overlays(bool printing) {
     // SET_DISPLAY_TEXT as "Make Pono X/N: now | next" ("Full Cal X/N" from the
     // older macro is accepted too). Carry it on the honest logbook box through
     // the whole run, in either state, with an always-reachable STOP. Replaces
-    // the thin OMEGA top banner.
-    bool cal_run = (busy_ || printing) &&
-                   (cal_msg_.rfind("Make Pono", 0) == 0 || cal_msg_.rfind("Full Cal", 0) == 0);
+    // the thin OMEGA top banner. "Full Cal" text counts only while that run's
+    // own omega_ job is printing (cal_log_gate.h): Klipper keeps the last
+    // message, and a leftover one covered an ordinary print and a manual home.
+    bool cal_run = pono::cal_log_applies(cal_msg_, busy_, printing, home_job_);
     if (cal_run) {
       if (!callog_shown_ || cal_msg_ != callog_text_) {
         parse_cal_msg(cal_msg_, callog_now_, callog_next_, callog_done_, callog_total_);
