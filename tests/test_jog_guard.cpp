@@ -28,6 +28,7 @@ int main() {
     check(jog_refusal('x', "xyz").empty(), "all homed: X goes");
     check(jog_refusal('z', "xyz").empty(), "all homed: Z goes");
     check(!jog_refusal('z', "xy").empty(), "X/Y homed only: Z still refused");
+    check(jog_refusal('x', "yz").rfind("X is not homed", 0) == 0, "Y/Z homed only: X refused and named");
     check(jog_refusal('y', "xy").empty(), "X/Y homed only: Y goes");
     check(jog_refusal('Z', "xyz").empty(), "upper-case axis matches lower-case homed_axes");
     check(jog_refusal('X', "").rfind("X is not homed", 0) == 0, "upper-case axis still named");
