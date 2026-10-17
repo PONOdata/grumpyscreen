@@ -28,6 +28,10 @@ inline bool is_full_cal_job(const std::string &filename) {
 // msg: display_status.message. busy: idle_timeout is "Printing" (a print or a
 // macro). printing: print_stats is "printing". job: print_stats.filename.
 inline bool cal_log_applies(const std::string &msg, bool busy, bool printing, const std::string &job) {
+  // No job check needed: every exit of the on-box Make Pono chain clears
+  // display_status.message (_PONO_CAL_FINISH before its report runs,
+  // _PONO_CAL_HALTED, the _PONO_CAL_ABORTED fallback), and a firmware restart
+  // resets it. pono-print-os tools/test_cal_stop_and_resume.sh holds the finish half.
   if (msg.rfind("Make Pono", 0) == 0) return busy || printing;
   if (msg.rfind("Full Cal", 0) == 0) return printing && is_full_cal_job(job);
   return false;
