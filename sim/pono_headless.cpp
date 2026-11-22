@@ -20,6 +20,7 @@
 #include "prompt_layout.h"
 #include "pono_slider.h"
 #include "numpad.h"
+#include "pono_keyboard.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -140,6 +141,7 @@ static lv_area_t label_ink(lv_obj_t *l) {
 // control with an extended click area is a real target, so a control's
 // thinness is read off its click area, not its drawn box.
 static int g_lamp_checked = 0;
+static int g_geom_fail = 0;  // a screen's own geometry check failed (exit 6)
 static int audit_under_lamp(lv_obj_t *o, lv_obj_t *lamp, const lv_area_t *hit,
                             const lv_area_t *clip) {
   int bad = 0;
@@ -465,6 +467,82 @@ int main(int argc, char **argv) {
     fprintf(stderr, "VERDICT: %d/%d lines clipped; reachable_by_scroll=%s\n",
             clipped, n,
             lv_obj_has_flag(pl.body, LV_OBJ_FLAG_SCROLLABLE) ? "yes" : "n/a (all visible)");
+  } else if (screen == "wifi_kb" || screen == "wifi_kb_sym") {
+    // The WiFi password sheet: every printable ASCII character must sit on some
+    // keyboard page, and caption, field and keys must fit apart on the panel.
+    lv_obj_t *cont = lv_obj_create(lv_scr_act());
+    lv_obj_set_size(cont, LV_PCT(100), LV_PCT(100));
+    lv_obj_set_style_pad_all(cont, 0, 0);
+    lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
+    lv_obj_add_flag(cont, LV_OBJ_FLAG_CLICK_FOCUSABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_bg_color(cont, pono::color_surface_base, 0);
+    lv_obj_set_style_bg_opa(cont, LV_OPA_COVER, 0);
+    static pono::PasswordSheet pw;
+    pono::password_sheet_build(cont, &pw);
+    pono::password_sheet_open(&pw, "Password for Pono Workshop Extended Network 5G");
+    lv_textarea_set_text(pw.input, "kiawe~^|`{}2026");
+
+    bool seen[128] = {false};
+    const lv_keyboard_mode_t pages[] = {LV_KEYBOARD_MODE_TEXT_LOWER, LV_KEYBOARD_MODE_TEXT_UPPER,
+                                        LV_KEYBOARD_MODE_SPECIAL};
+    for (lv_keyboard_mode_t page : pages) {
+      lv_keyboard_set_mode(pw.kb, page);
+      const char **map = lv_btnmatrix_get_map(pw.kb);
+      for (int i = 0; map[i][0] != '\0'; i++) {
+        const unsigned char ch = (unsigned char)map[i][0];
+        if (map[i][1] == '\0' && ch >= 0x20 && ch <= 0x7E) seen[ch] = true;
+      }
+    }
+    std::string missing;
+    for (int c = 0x20; c <= 0x7E; c++)
+      if (!seen[c]) missing += (char)c;
+
+    lv_keyboard_set_mode(pw.kb, screen == "wifi_kb_sym" ? LV_KEYBOARD_MODE_SPECIAL : LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_obj_update_layout(lv_scr_act());
+
+    const lv_area_t pnl = {0, 0, PW - 1, PH - 1};
+    lv_area_t a[3];
+    a[0] = label_ink(pw.caption);
+    lv_obj_get_coords(pw.input, &a[1]);
+    lv_obj_get_coords(pw.kb, &a[2]);
+    const char *names[3] = {"caption", "field", "keyboard"};
+    int faults = 0;
+    for (int i = 0; i < 3; i++) {
+      fprintf(stderr, "%s: %d,%d-%d,%d\n", names[i], (int)a[i].x1, (int)a[i].y1, (int)a[i].x2, (int)a[i].y2);
+      if (!_lv_area_is_in(&a[i], &pnl, 0)) {
+        faults++;
+        fprintf(stderr, "FAULT: %s is not inside the panel\n", names[i]);
+      }
+      for (int j = i + 1; j < 3; j++) {
+        lv_area_t r;
+        if (_lv_area_intersect(&r, &a[i], &a[j])) {
+          faults++;
+          fprintf(stderr, "FAULT: %s intersects %s\n", names[i], names[j]);
+        }
+      }
+    }
+    const lv_coord_t row_h = (lv_obj_get_content_height(pw.kb) - 3 * lv_obj_get_style_pad_row(pw.kb, LV_PART_MAIN)) / 4;
+    fprintf(stderr, "key row height: %d\n", (int)row_h);
+    if (row_h < 36) {
+      faults++;
+      fprintf(stderr, "FAULT: key row height %d is under 36\n", (int)row_h);
+    }
+    const lv_coord_t in_lh = lv_font_get_line_height(lv_obj_get_style_text_font(pw.input, LV_PART_MAIN));
+    if (lv_obj_get_content_height(pw.input) < in_lh) {
+      faults++;
+      fprintf(stderr, "FAULT: field content height %d is under its font line height %d\n",
+              (int)lv_obj_get_content_height(pw.input), (int)in_lh);
+    }
+    const lv_coord_t cap_lh = lv_font_get_line_height(lv_obj_get_style_text_font(pw.caption, LV_PART_MAIN));
+    if (lv_obj_get_height(pw.caption) < cap_lh) {
+      faults++;
+      fprintf(stderr, "FAULT: caption height %d is under its font line height %d\n",
+              (int)lv_obj_get_height(pw.caption), (int)cap_lh);
+    }
+    fprintf(stderr, "VERDICT: wifi_kb %d geometry faults, %d of 95 printable characters missing%s%s\n",
+            faults, (int)missing.size(), missing.empty() ? "" : ": ", missing.c_str());
+    if (faults != 0 || !missing.empty()) g_geom_fail = 1;
   } else if (screen == "makepono_fault") {
     // The lost-contact state: no word from the machine -> alarm + STOP stays put.
     pono::build_home(lv_scr_act(), pono::demo_home_idle_model());
@@ -572,5 +650,6 @@ int main(int argc, char **argv) {
   pono::omega_status_hide();
   pono::cal_log_hide();
   if (zfail) return 5;
+  if (g_geom_fail) return 6;
   return under ? 3 : 0;
 }

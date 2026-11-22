@@ -3,6 +3,7 @@
 
 #include "wpa_event.h"
 #include "button_container.h"
+#include "pono_keyboard.h"
 #include "lvgl/lvgl.h"
 #include <mutex>
 
@@ -61,10 +62,9 @@ class WifiPanel {
   lv_obj_t *wifi_right;
   lv_obj_t *prompt_cont;
   lv_obj_t *wifi_label;
-  lv_obj_t *password_input;
   ButtonContainer back_btn;
   ButtonContainer refresh_btn;
-  lv_obj_t *kb;
+  pono::PasswordSheet pw;  // built in the constructor body
   std::string selected_network;
   std::string cur_network;
   std::map<std::string, std::string> list_networks;

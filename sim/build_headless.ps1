@@ -83,6 +83,7 @@ $exe = Join-Path $sim 'pono-headless.exe'
   (Join-Path $root 'src\prompt_layout.cpp') `
   (Join-Path $root 'src\numpad.cpp') `
   (Join-Path $root 'src\pono_slider.cpp') `
+  (Join-Path $root 'src\pono_keyboard.cpp') `
   $fontobj $animobj $lib -o $exe -lm
 if ($LASTEXITCODE -ne 0) { throw "link failed ($LASTEXITCODE)" }
 Write-Host "      built $exe"
@@ -93,12 +94,14 @@ $png = Join-Path $sim "$Screen.png"
 & $exe $bmp $AdvanceMs $Screen
 $rc = $LASTEXITCODE
 # Exit 3 means the render is fine but something sits under the E-STOP; keep
-# the picture so the overlap can be seen, then fail.
-if ($rc -ne 0 -and $rc -ne 3) { throw "render failed ($rc)" }
+# the picture so the overlap can be seen, then fail. Exit 6 means a screen's
+# own geometry check failed; keep the picture the same way, then fail.
+if ($rc -ne 0 -and $rc -ne 3 -and $rc -ne 6) { throw "render failed ($rc)" }
 
 Add-Type -AssemblyName System.Drawing
 $img = [System.Drawing.Bitmap]::FromFile($bmp)
 $img.Save($png, [System.Drawing.Imaging.ImageFormat]::Png)
 $img.Dispose()
 if ($rc -eq 3) { throw "something sits under the E-STOP, see $png" }
+if ($rc -eq 6) { throw "a screen's own geometry check failed, see $png" }
 Write-Host "RENDER OK -> $png"
